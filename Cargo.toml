@@ -1,0 +1,41 @@
+[package]
+name = "bevy_sdl_gamepad"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy_app = { version = "0.20.0", default-features = false }
+bevy_ecs = { version = "0.20.0", default-features = false }
+bevy_input = { version = "0.20.0", default-features = false, features = ["gamepad"] }
+bevy_log = { version = "0.20.0" }
+bevy_math = { version = "0.20.0", default-features = false }
+bevy_platform = { version = "0.20.0", default-features = false }
+bevy_time = { version = "0.20.0", default-features = false }
+sdl3-sys = { version = "0.7.2", default-features = false, features = [
+  "build-from-source-static",
+  "debug-impls",
+  "no-default-subsystems",
+  "sdl-joystick",
+  "sdl-hidapi",
+  "sdl-haptic",
+  "sdl-sensor",
+  "sdl-power",
+  "sdl-unix-console-build",
+] }
+
+[dev-dependencies]
+# Bevy's `default_platform` would bring in `bevy_gilrs`, so its parts are listed instead.
+bevy = { version = "0.20.0", default-features = false, features = [
+  "std",
+  "multi_threaded",
+  "bevy_log",
+  "bevy_winit",
+  "x11",
+  "wayland",
+  "gamepad",
+  "ui_bevy_render",
+  "bevy_feathers",
+  "custom_cursor",
+  "bevy_scene",
+] }
