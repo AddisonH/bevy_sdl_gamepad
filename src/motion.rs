@@ -17,7 +17,9 @@ use sdl3_sys::{
 
 use crate::{
     SdlGamepad,
-    ext::{GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors, MotionSensor},
+    ext::{
+        GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors, MotionSensor,
+    },
     sdl,
 };
 
@@ -52,7 +54,9 @@ pub(crate) fn apply_config(
     gamepads: Query<&SdlGamepad>,
 ) {
     sdl::with(|sdl| {
-        let removed = removed.read().filter_map(|entity| gamepads.get(entity).ok());
+        let removed = removed
+            .read()
+            .filter_map(|entity| gamepads.get(entity).ok());
         let configs = changed
             .iter()
             .map(|(pad, config)| (pad, config.copied().unwrap_or_default()))
@@ -61,7 +65,10 @@ pub(crate) fn apply_config(
             let Some(gamepad) = sdl.gamepad(pad.instance_id) else {
                 continue;
             };
-            for (sensor, enabled) in [(SDL_SENSOR_GYRO, config.gyro), (SDL_SENSOR_ACCEL, config.accel)] {
+            for (sensor, enabled) in [
+                (SDL_SENSOR_GYRO, config.gyro),
+                (SDL_SENSOR_ACCEL, config.accel),
+            ] {
                 // SAFETY: `gamepad` is open. SDL ignores sensors the gamepad does not have.
                 unsafe { SDL_SetGamepadSensorEnabled(gamepad.as_ptr(), sensor, enabled) };
             }

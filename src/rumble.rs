@@ -58,7 +58,12 @@ pub(crate) fn play(
                 (s + i.strong_motor, w + i.weak_motor)
             });
             let level = (magnitude(strong), magnitude(weak));
-            let until = rumble.running.iter().map(|&(end, _)| end).max().unwrap_or(now);
+            let until = rumble
+                .running
+                .iter()
+                .map(|&(end, _)| end)
+                .max()
+                .unwrap_or(now);
             let renew = until > rumble.sent_until && rumble.sent_until < now + RENEW_MARGIN;
             if level != rumble.sent || renew {
                 let duration = (until - now).min(MAX_SDL_DURATION);

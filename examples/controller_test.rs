@@ -267,7 +267,13 @@ fn trigger(text: &'static str, button: GamepadButton, x: f32, y: f32) -> impl Sc
     }
 }
 
-fn stick(x: f32, y: f32, axes: (GamepadAxis, GamepadAxis), click: GamepadButton, touch: GamepadButton) -> impl Scene {
+fn stick(
+    x: f32,
+    y: f32,
+    axes: (GamepadAxis, GamepadAxis),
+    click: GamepadButton,
+    touch: GamepadButton,
+) -> impl Scene {
     let offset = (STICK - KNOB) / 2.0;
     bsn! {
         @place(x, y, STICK, STICK)
@@ -479,8 +485,14 @@ fn show_header(
     let lines: Vec<_> = gamepads
         .iter()
         .map(|(entity, gamepad, name, sdl)| {
-            let marker = if active.0 == Some(entity) { "→" } else { "   " };
-            let sdl = sdl.map_or(String::new(), |sdl| format!(" · SDL #{}", sdl.instance_id()));
+            let marker = if active.0 == Some(entity) {
+                "→"
+            } else {
+                "   "
+            };
+            let sdl = sdl.map_or(String::new(), |sdl| {
+                format!(" · SDL #{}", sdl.instance_id())
+            });
             format!(
                 "{marker} {name} · {}:{} · {entity}{sdl}",
                 id(gamepad.vendor_id()),
@@ -524,7 +536,11 @@ fn show_triggers(
     mut texts: Query<(&TriggerText, &mut Text)>,
 ) {
     let gamepad = active(&active_pad, &gamepads);
-    let value = |button| gamepad.and_then(|gamepad| gamepad.get(button)).unwrap_or(0.0);
+    let value = |button| {
+        gamepad
+            .and_then(|gamepad| gamepad.get(button))
+            .unwrap_or(0.0)
+    };
     for (fill, mut node) in &mut fills {
         node.width = percent(value(fill.0) * 100.0);
     }
@@ -690,7 +706,9 @@ fn toggle_motion(
         return;
     }
     let Some(entity) = active_pad.0 else { return };
-    let Ok(config) = configs.get(entity) else { return };
+    let Ok(config) = configs.get(entity) else {
+        return;
+    };
     let on = !config.is_some_and(|config| config.gyro);
     commands.entity(entity).insert(GamepadMotionConfig {
         gyro: on,

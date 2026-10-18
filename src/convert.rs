@@ -96,6 +96,9 @@ mod tests {
 
     #[test]
     fn unnamed_buttons_keep_their_sdl_index() {
-        assert_eq!(button(SDL_GAMEPAD_BUTTON_LEFT_PADDLE2), button::LEFT_PADDLE2);
+        assert_eq!(
+            button(SDL_GAMEPAD_BUTTON_LEFT_PADDLE2),
+            button::LEFT_PADDLE2
+        );
     }
 }

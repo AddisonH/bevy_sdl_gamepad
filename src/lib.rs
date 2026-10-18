@@ -58,7 +58,9 @@ impl Plugin for SdlGamepadPlugin {
             .add_systems(PreStartup, move |_: NonSendMarker| sdl::init(&hints))
             .add_systems(
                 PreUpdate,
-                (events::poll, motion::apply_config).chain().before(InputSystems),
+                (events::poll, motion::apply_config)
+                    .chain()
+                    .before(InputSystems),
             )
             .add_systems(PostUpdate, rumble::play)
             .add_systems(Last, sdl::shutdown_on_exit);

@@ -101,5 +101,9 @@ pub(crate) fn error() -> String {
 /// Copies a string returned by SDL, which may be null.
 pub(crate) fn string(ptr: *const c_char) -> Option<String> {
     // SAFETY: non-null strings from SDL are NUL-terminated.
-    (!ptr.is_null()).then(|| unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+    (!ptr.is_null()).then(|| {
+        unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned()
+    })
 }

@@ -4,16 +4,16 @@ use core::{ffi::c_void, time::Duration};
 use std::sync::{Mutex, MutexGuard};
 
 use bevy_app::{App, AppExit};
-use bevy_ecs::prelude::*;
 use bevy_ecs::message::Messages;
-use bevy_sdl_gamepad::ext::{
-    GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors,
-    GamepadTouchpads, MotionSensor, TouchpadFinger,
-};
-use bevy_math::{Vec2, Vec3};
+use bevy_ecs::prelude::*;
 use bevy_input::{
     InputPlugin,
     gamepad::{Gamepad, GamepadButton, GamepadRumbleIntensity, GamepadRumbleRequest},
+};
+use bevy_math::{Vec2, Vec3};
+use bevy_sdl_gamepad::ext::{
+    GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors,
+    GamepadTouchpads, MotionSensor, TouchpadFinger,
 };
 use bevy_sdl_gamepad::{SdlGamepad, SdlGamepadPlugin, button};
 use bevy_time::TimePlugin;
@@ -38,7 +38,9 @@ struct Harness {
 
 impl Harness {
     fn new() -> Self {
-        let lock = SDL_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lock = SDL_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut plugin = SdlGamepadPlugin::default();
         // Keep real gamepads out of the tests.
         plugin.hints.push((
@@ -66,12 +68,18 @@ impl Harness {
 
     fn gamepad(&mut self, pad: &VirtualPad) -> &Gamepad {
         let entity = self.entity(pad);
-        self.app.world().get::<Gamepad>(entity).expect("no Gamepad component")
+        self.app
+            .world()
+            .get::<Gamepad>(entity)
+            .expect("no Gamepad component")
     }
 
     fn touchpads(&mut self, pad: &VirtualPad) -> &GamepadTouchpads {
         let entity = self.entity(pad);
-        self.app.world().get::<GamepadTouchpads>(entity).expect("no touchpads")
+        self.app
+            .world()
+            .get::<GamepadTouchpads>(entity)
+            .expect("no touchpads")
     }
 
     fn motion_samples(&self) -> Vec<GamepadMotionSample> {
@@ -278,10 +286,16 @@ fn rumble_stacks_expires_and_stops() {
         intensity,
         duration,
     };
-    h.rumble(add(GamepadRumbleIntensity::strong_motor(0.5), Duration::from_secs(10)));
+    h.rumble(add(
+        GamepadRumbleIntensity::strong_motor(0.5),
+        Duration::from_secs(10),
+    ));
     assert_eq!(last(), (32767, 0));
 
-    h.rumble(add(GamepadRumbleIntensity::WEAK_MAX, Duration::from_millis(50)));
+    h.rumble(add(
+        GamepadRumbleIntensity::WEAK_MAX,
+        Duration::from_millis(50),
+    ));
     assert_eq!(last(), (32767, u16::MAX));
 
     std::thread::sleep(Duration::from_millis(100));
@@ -327,7 +341,10 @@ fn motion_sensors_are_listed_and_off_by_default() {
     pad.sensor(SDL_SENSOR_GYRO, 0, [1.0, 2.0, 3.0]);
     h.update();
     assert!(h.motion_samples().is_empty());
-    assert_eq!(h.app.world().get::<GamepadMotion>(entity), Some(&GamepadMotion::default()));
+    assert_eq!(
+        h.app.world().get::<GamepadMotion>(entity),
+        Some(&GamepadMotion::default())
+    );
     pad.detach();
 }
 
@@ -337,10 +354,13 @@ fn gyro_samples_sum_into_rotation_delta() {
     let pad = VirtualPad::attach();
     h.update();
     let entity = h.entity(&pad);
-    h.app.world_mut().entity_mut(entity).insert(GamepadMotionConfig {
-        gyro: true,
-        accel: true,
-    });
+    h.app
+        .world_mut()
+        .entity_mut(entity)
+        .insert(GamepadMotionConfig {
+            gyro: true,
+            accel: true,
+        });
     h.update();
 
     pad.sensor(SDL_SENSOR_GYRO, 0, [1.0, 0.0, 0.0]);
@@ -350,7 +370,10 @@ fn gyro_samples_sum_into_rotation_delta() {
     h.update();
 
     let samples = h.motion_samples();
-    let gyro = samples.iter().filter(|s| s.sensor == MotionSensor::Gyro).count();
+    let gyro = samples
+        .iter()
+        .filter(|s| s.sensor == MotionSensor::Gyro)
+        .count();
     assert_eq!((samples.len(), gyro), (4, 3));
     assert!(samples.iter().all(|s| s.gamepad == entity));
 

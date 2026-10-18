@@ -101,10 +101,23 @@ pub(crate) fn poll(
                 match SDL_EventType(event.r#type) {
                     SDL_EVENT_GAMEPAD_ADDED => {
                         let id = event.gdevice.which;
-                        connect(sdl, id, default_motion.0, &mut commands, &mut gamepads, &mut out);
+                        connect(
+                            sdl,
+                            id,
+                            default_motion.0,
+                            &mut commands,
+                            &mut gamepads,
+                            &mut out,
+                        );
                     }
                     SDL_EVENT_GAMEPAD_REMOVED => {
-                        disconnect(sdl, event.gdevice.which, &mut commands, &mut gamepads, &mut out);
+                        disconnect(
+                            sdl,
+                            event.gdevice.which,
+                            &mut commands,
+                            &mut gamepads,
+                            &mut out,
+                        );
                     }
                     SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP => {
                         let e = event.gbutton;
@@ -182,9 +195,7 @@ fn connect(
         .filter(|&entity| commands.get_entity(entity).is_ok())
         .unwrap_or_else(|| commands.spawn_empty().id());
     let mut entity_commands = commands.entity(entity);
-    entity_commands.insert(SdlGamepad {
-        instance_id: id.0,
-    });
+    entity_commands.insert(SdlGamepad { instance_id: id.0 });
     if let Some(touchpads) = touchpads(gamepad) {
         entity_commands.insert(touchpads);
     }
@@ -281,7 +292,12 @@ fn disconnect(
     gamepads.last_gyro.remove(&id.0);
     gamepads.disconnected.insert(key, entity);
     if let Ok(mut entity) = commands.get_entity(entity) {
-        entity.remove::<(SdlGamepad, GamepadTouchpads, GamepadMotionSensors, GamepadMotion)>();
+        entity.remove::<(
+            SdlGamepad,
+            GamepadTouchpads,
+            GamepadMotionSensors,
+            GamepadMotion,
+        )>();
     }
     out.connection(entity, GamepadConnection::Disconnected);
 }
