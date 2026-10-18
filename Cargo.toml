@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 bevy_app = { version = "0.20.0", default-features = false }
 bevy_ecs = { version = "0.20.0", default-features = false }
-bevy_input = { version = "0.20.0", default-features = false, features = ["gamepad"] }
+bevy_input = { version = "0.20.0", default-features = false, features = ["gamepad", "touch"] }
 bevy_log = { version = "0.20.0" }
 bevy_math = { version = "0.20.0", default-features = false, features = ["std"] }
 bevy_platform = { version = "0.20.0", default-features = false }

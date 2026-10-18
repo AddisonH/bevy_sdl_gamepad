@@ -5,11 +5,13 @@
 use core::time::Duration;
 
 use bevy_ecs::{component::Component, entity::Entity, message::Message};
+use bevy_input::{gamepad::GamepadButton, touch::TouchPhase};
 use bevy_math::{Vec2, Vec3};
 
-/// A gamepad's touchpads, in the order its backend reports them.
+/// A gamepad's touchpads and the fingers currently on them, updated every frame.
 ///
-/// Clicking a touchpad is a button, not part of this state.
+/// Touchpads are in the order the backend reports them. Present only on gamepads with a
+/// touchpad.
 #[derive(Component, Debug, Clone, Default, PartialEq)]
 pub struct GamepadTouchpads(pub Vec<Touchpad>);
 
@@ -17,12 +19,34 @@ pub struct GamepadTouchpads(pub Vec<Touchpad>);
 pub struct Touchpad {
     /// One slot per finger the touchpad can track; `None` while that finger is lifted.
     pub fingers: Vec<Option<TouchpadFinger>>,
+    /// The button that clicking this touchpad presses, if it clicks.
+    ///
+    /// Read whether it is pressed from [`Gamepad`](bevy_input::gamepad::Gamepad) as for any
+    /// other button.
+    pub click: Option<GamepadButton>,
 }
 
 impl Touchpad {
     pub fn touched(&self) -> bool {
         self.fingers.iter().any(Option::is_some)
     }
+}
+
+/// A finger touching, moving on, or leaving a gamepad touchpad, sent for every sample.
+///
+/// Fingers still down when their gamepad disconnects get [`TouchPhase::Ended`].
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct GamepadTouchpadEvent {
+    pub gamepad: Entity,
+    /// Index into [`GamepadTouchpads`].
+    pub touchpad: usize,
+    /// Index into [`Touchpad::fingers`].
+    pub finger: usize,
+    pub phase: TouchPhase,
+    /// Where the finger is, or last was for [`TouchPhase::Ended`].
+    pub at: TouchpadFinger,
+    /// When the backend received the sample. Only differences between events are meaningful.
+    pub timestamp: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

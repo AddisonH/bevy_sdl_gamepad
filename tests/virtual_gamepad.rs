@@ -4,8 +4,9 @@ use core::{ffi::c_void, time::Duration};
 use std::sync::{Mutex, MutexGuard};
 
 use bevy_app::{App, AppExit};
-use bevy_ecs::message::Messages;
+use bevy_ecs::message::{MessageCursor, Messages};
 use bevy_ecs::prelude::*;
+use bevy_input::touch::TouchPhase;
 use bevy_input::{
     InputPlugin,
     gamepad::{Gamepad, GamepadButton, GamepadRumbleIntensity, GamepadRumbleRequest},
@@ -13,7 +14,7 @@ use bevy_input::{
 use bevy_math::{Vec2, Vec3};
 use bevy_sdl_gamepad::ext::{
     GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors,
-    GamepadTouchpads, MotionSensor, TouchpadFinger,
+    GamepadTouchpadEvent, GamepadTouchpads, MotionSensor, TouchpadFinger,
 };
 use bevy_sdl_gamepad::{SdlGamepad, SdlGamepadPlugin, button};
 use bevy_time::TimePlugin;
@@ -82,9 +83,10 @@ impl Harness {
             .expect("no touchpads")
     }
 
-    fn motion_samples(&self) -> Vec<GamepadMotionSample> {
-        let messages = self.app.world().resource::<Messages<GamepadMotionSample>>();
-        messages.iter_current_update_messages().copied().collect()
+    /// Messages of type `M` sent since `cursor` last read them.
+    fn messages<M: Message + Copy>(&self, cursor: &mut MessageCursor<M>) -> Vec<M> {
+        let messages = self.app.world().resource::<Messages<M>>();
+        cursor.read(messages).copied().collect()
     }
 
     fn rumble(&mut self, request: GamepadRumbleRequest) {
@@ -312,6 +314,15 @@ fn touchpad_fingers_follow_touches() {
     let mut h = Harness::new();
     let pad = VirtualPad::attach();
     h.update();
+    assert_eq!(h.touchpads(&pad).0[0].click, Some(button::TOUCHPAD));
+    let mut events = MessageCursor::<GamepadTouchpadEvent>::default();
+    let mut phases = |h: &Harness| -> Vec<_> {
+        let events = h.messages(&mut events);
+        events
+            .iter()
+            .map(|e| (e.touchpad, e.finger, e.phase))
+            .collect()
+    };
 
     pad.touch(1, Some((0.25, 0.75)));
     h.update();
@@ -320,11 +331,23 @@ fn touchpad_fingers_follow_touches() {
         pressure: 0.5,
     };
     assert_eq!(h.touchpads(&pad).0[0].fingers, vec![None, Some(finger)]);
+    assert_eq!(phases(&h), [(0, 1, TouchPhase::Started)]);
+
+    pad.touch(1, Some((0.5, 0.5)));
+    h.update();
+    assert_eq!(phases(&h), [(0, 1, TouchPhase::Moved)]);
 
     pad.touch(1, None);
     h.update();
     assert!(!h.touchpads(&pad).0[0].touched());
+    assert_eq!(phases(&h), [(0, 1, TouchPhase::Ended)]);
+
+    pad.touch(0, Some((0.5, 0.5)));
+    h.update();
+    phases(&h);
     pad.detach();
+    h.update();
+    assert_eq!(phases(&h), [(0, 0, TouchPhase::Ended)]);
 }
 
 #[test]
@@ -338,9 +361,10 @@ fn motion_sensors_are_listed_and_off_by_default() {
     assert_eq!(sensors.gyro, Some(200.0));
     assert_eq!(sensors.accel, Some(100.0));
 
+    let mut samples = MessageCursor::<GamepadMotionSample>::default();
     pad.sensor(SDL_SENSOR_GYRO, 0, [1.0, 2.0, 3.0]);
     h.update();
-    assert!(h.motion_samples().is_empty());
+    assert!(h.messages(&mut samples).is_empty());
     assert_eq!(
         h.app.world().get::<GamepadMotion>(entity),
         Some(&GamepadMotion::default())
@@ -363,13 +387,14 @@ fn gyro_samples_sum_into_rotation_delta() {
         });
     h.update();
 
+    let mut samples = MessageCursor::<GamepadMotionSample>::default();
     pad.sensor(SDL_SENSOR_GYRO, 0, [1.0, 0.0, 0.0]);
     pad.sensor(SDL_SENSOR_GYRO, 10, [1.0, 0.0, 0.0]);
     pad.sensor(SDL_SENSOR_GYRO, 20, [3.0, 0.0, 0.0]);
     pad.sensor(SDL_SENSOR_ACCEL, 20, [0.0, 9.8, 0.0]);
     h.update();
 
-    let samples = h.motion_samples();
+    let samples = h.messages(&mut samples);
     let gyro = samples
         .iter()
         .filter(|s| s.sensor == MotionSensor::Gyro)

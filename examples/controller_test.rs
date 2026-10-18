@@ -18,7 +18,8 @@ use bevy::{
     prelude::*,
 };
 use bevy_sdl_gamepad::ext::{
-    GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadTouchpads, MotionSensor,
+    GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadTouchpadEvent,
+    GamepadTouchpads, MotionSensor,
 };
 use bevy_sdl_gamepad::{SdlGamepad, SdlGamepadPlugin, button};
 
@@ -39,14 +40,12 @@ const LIT: ThemeToken = tokens::BUTTON_PRIMARY_BG;
 
 // SDL's mapping for the Steam Controller puts its extra inputs on these buttons.
 const QAM: GamepadButton = button::MISC1;
-const LEFT_PAD_CLICK: GamepadButton = button::TOUCHPAD;
-const RIGHT_PAD_CLICK: GamepadButton = button::MISC2;
 const LEFT_STICK_TOUCH: GamepadButton = button::MISC3;
 const RIGHT_STICK_TOUCH: GamepadButton = button::MISC4;
 const LEFT_GRIP_TOUCH: GamepadButton = button::MISC5;
 const RIGHT_GRIP_TOUCH: GamepadButton = button::MISC6;
 
-/// Buttons with a place on screen; any others held are listed as text.
+/// Buttons with a place on screen, besides touchpad clicks; any others held are listed as text.
 const SHOWN: &[GamepadButton] = &[
     GamepadButton::South,
     GamepadButton::East,
@@ -70,8 +69,6 @@ const SHOWN: &[GamepadButton] = &[
     button::LEFT_PADDLE2,
     button::RIGHT_PADDLE1,
     button::RIGHT_PADDLE2,
-    LEFT_PAD_CLICK,
-    RIGHT_PAD_CLICK,
     LEFT_STICK_TOUCH,
     RIGHT_STICK_TOUCH,
     LEFT_GRIP_TOUCH,
@@ -114,7 +111,7 @@ fn main() {
                     show_sticks,
                     show_touchpads,
                     show_other,
-                    (count_samples, show_motion).chain(),
+                    (count_events, show_motion).chain(),
                     rumble,
                     toggle_motion,
                 ),
@@ -128,18 +125,25 @@ fn main() {
 #[derive(Resource, Default)]
 struct ActivePad(Option<Entity>);
 
-/// Lights up part of a node while `button` is held.
+/// Lights up part of a node while a button is held.
 #[derive(Component, Clone)]
 struct Light {
-    button: GamepadButton,
+    source: LightSource,
     border: bool,
     lit: bool,
+}
+
+#[derive(Clone, Copy)]
+enum LightSource {
+    Button(GamepadButton),
+    /// The click button of this touchpad, whichever button that is on the gamepad.
+    PadClick(usize),
 }
 
 impl Light {
     fn background(button: GamepadButton) -> Self {
         Self {
-            button,
+            source: LightSource::Button(button),
             border: false,
             lit: false,
         }
@@ -149,6 +153,14 @@ impl Light {
         Self {
             border: true,
             ..Self::background(button)
+        }
+    }
+
+    fn pad_click(pad: usize) -> Self {
+        Self {
+            source: LightSource::PadClick(pad),
+            border: true,
+            lit: false,
         }
     }
 }
@@ -190,12 +202,19 @@ struct MotionText;
 #[derive(Resource, Default)]
 struct GyroAim(Vec2);
 
-/// Motion samples counted over the current second, and the counts from the last full one.
+/// Events counted over the current second, and the counts from the last full one.
 #[derive(Resource, Default)]
 struct SampleRates {
-    counting: (u32, u32),
-    shown: (u32, u32),
+    counting: EventCounts,
+    shown: EventCounts,
     second: f32,
+}
+
+#[derive(Default, Clone, Copy)]
+struct EventCounts {
+    gyro: u32,
+    accel: u32,
+    touch: [u32; 2],
 }
 
 /// Mirrors a left-side x position onto the right side.
@@ -294,7 +313,7 @@ fn stick(
     }
 }
 
-fn trackpad(name: &'static str, pad: usize, click: GamepadButton, x: f32, y: f32) -> impl Scene {
+fn trackpad(name: &'static str, pad: usize, x: f32, y: f32) -> impl Scene {
     let dot = |finger| {
         bsn! {
             Node {
@@ -316,7 +335,7 @@ fn trackpad(name: &'static str, pad: usize, click: GamepadButton, x: f32, y: f32
         }
         ThemeBackgroundColor(tokens::PANE_BODY_BG)
         ThemeBorderColor(IDLE)
-        ~{ Light::border(click) }
+        ~{ Light::pad_click(pad) }
         Children [
             @{ dot(0) }
             --
@@ -431,9 +450,9 @@ fn root() -> impl Scene {
             --
             @pill("…", QAM, mirror(0.0, 60.0) / 2.0, 256.0, 60.0, 30.0)
             --
-            @trackpad("Left pad · 0", 0, LEFT_PAD_CLICK, 220.0, 330.0)
+            @trackpad("Left pad · 0", 0, 220.0, 330.0)
             --
-            @trackpad("Right pad · 1", 1, RIGHT_PAD_CLICK, mirror(220.0, PAD), 330.0)
+            @trackpad("Right pad · 1", 1, mirror(220.0, PAD), 330.0)
             --
             @gyro_panel(mirror(0.0, AIM_WIDTH) / 2.0, 330.0)
             --
@@ -510,12 +529,18 @@ fn show_header(
 fn show_lights(
     mut commands: Commands,
     active_pad: Res<ActivePad>,
-    gamepads: Query<&Gamepad>,
+    gamepads: Query<(&Gamepad, Option<&GamepadTouchpads>)>,
     mut lights: Query<(Entity, &mut Light)>,
 ) {
     let gamepad = active(&active_pad, &gamepads);
     for (entity, mut light) in &mut lights {
-        let lit = gamepad.is_some_and(|gamepad| gamepad.pressed(light.button));
+        let lit = gamepad.is_some_and(|(gamepad, pads)| {
+            let button = match light.source {
+                LightSource::Button(button) => Some(button),
+                LightSource::PadClick(pad) => pads.and_then(|pads| pads.0.get(pad)?.click),
+            };
+            button.is_some_and(|button| gamepad.pressed(button))
+        });
         if lit == light.lit {
             continue;
         }
@@ -569,6 +594,7 @@ fn show_sticks(
 
 fn show_touchpads(
     active_pad: Res<ActivePad>,
+    rates: Res<SampleRates>,
     touchpads: Query<&GamepadTouchpads>,
     mut dots: Query<(&FingerDot, &mut Node)>,
     mut texts: Query<(&PadText, &mut Text)>,
@@ -590,8 +616,12 @@ fn show_touchpads(
         }
     }
     for (PadText(name, pad), mut text) in &mut texts {
+        let rate = rates.shown.touch[*pad];
         text.0 = match finger(*pad, 0) {
-            Some(f) => format!("{name} · {:.2}, {:.2}", f.position.x, f.position.y),
+            Some(f) => format!(
+                "{name} · {:.2}, {:.2} · {rate} events/s",
+                f.position.x, f.position.y
+            ),
             None => (*name).into(),
         };
     }
@@ -599,13 +629,21 @@ fn show_touchpads(
 
 fn show_other(
     active_pad: Res<ActivePad>,
-    gamepads: Query<&Gamepad>,
+    gamepads: Query<(&Gamepad, Option<&GamepadTouchpads>)>,
     mut text: Single<&mut Text, With<OtherText>>,
 ) {
-    let others: Vec<_> = active(&active_pad, &gamepads)
-        .into_iter()
-        .flat_map(|gamepad| gamepad.get_pressed())
-        .filter(|button| !SHOWN.contains(button))
+    let Some((gamepad, pads)) = active(&active_pad, &gamepads) else {
+        text.0 = String::new();
+        return;
+    };
+    let pad_clicks: Vec<_> = pads
+        .iter()
+        .flat_map(|pads| &pads.0)
+        .filter_map(|pad| pad.click)
+        .collect();
+    let others: Vec<_> = gamepad
+        .get_pressed()
+        .filter(|button| !SHOWN.contains(button) && !pad_clicks.contains(button))
         .map(|button| format!("{button:?}"))
         .collect();
     text.0 = if others.is_empty() {
@@ -641,16 +679,22 @@ fn rumble(
     }
 }
 
-fn count_samples(
+fn count_events(
     time: Res<Time>,
     active_pad: Res<ActivePad>,
     mut samples: MessageReader<GamepadMotionSample>,
+    mut touches: MessageReader<GamepadTouchpadEvent>,
     mut rates: ResMut<SampleRates>,
 ) {
     for sample in samples.read().filter(|s| Some(s.gamepad) == active_pad.0) {
         match sample.sensor {
-            MotionSensor::Gyro => rates.counting.0 += 1,
-            MotionSensor::Accel => rates.counting.1 += 1,
+            MotionSensor::Gyro => rates.counting.gyro += 1,
+            MotionSensor::Accel => rates.counting.accel += 1,
+        }
+    }
+    for touch in touches.read().filter(|t| Some(t.gamepad) == active_pad.0) {
+        if let Some(count) = rates.counting.touch.get_mut(touch.touchpad) {
+            *count += 1;
         }
     }
     rates.second += time.delta_secs();
@@ -691,8 +735,8 @@ fn show_motion(
     text.0 = format!(
         "gyro {gx:+.2} {gy:+.2} {gz:+.2} rad/s\naccel {ax:+.1} {ay:+.1} {az:+.1} m/s²\n{} · {} gyro, {} accel samples/s",
         if on { "sensors on" } else { "sensors off" },
-        rates.shown.0,
-        rates.shown.1,
+        rates.shown.gyro,
+        rates.shown.accel,
     );
 }
 

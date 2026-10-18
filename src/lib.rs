@@ -11,6 +11,7 @@ mod events;
 mod motion;
 mod rumble;
 mod sdl;
+mod touchpad;
 
 pub use convert::button;
 
@@ -55,6 +56,7 @@ impl Plugin for SdlGamepadPlugin {
             .init_resource::<rumble::Rumbles>()
             .insert_resource(motion::DefaultMotionConfig(self.motion))
             .add_message::<ext::GamepadMotionSample>()
+            .add_message::<ext::GamepadTouchpadEvent>()
             .add_systems(PreStartup, move |_: NonSendMarker| sdl::init(&hints))
             .add_systems(
                 PreUpdate,

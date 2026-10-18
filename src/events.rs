@@ -10,7 +10,7 @@ use bevy_input::gamepad::{
     GamepadAxis, GamepadButton, GamepadConnection, GamepadConnectionEvent,
     RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent,
 };
-use bevy_math::{Vec2, Vec3};
+use bevy_math::Vec3;
 use bevy_platform::collections::HashMap;
 use sdl3_sys::{events::*, gamepad::*, joystick::SDL_JoystickID};
 
@@ -19,10 +19,11 @@ use crate::{
     convert::{self, Input},
     ext::{
         GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors,
-        GamepadTouchpads, Touchpad, TouchpadFinger,
+        GamepadTouchpadEvent, GamepadTouchpads,
     },
     motion::{self, DefaultMotionConfig},
     sdl::{self, Sdl},
+    touchpad,
 };
 
 /// Identifies a physical device across reconnections, so it gets back its entity.
@@ -48,6 +49,7 @@ pub(crate) struct Writers<'w> {
     button: MessageWriter<'w, RawGamepadButtonChangedEvent>,
     axis: MessageWriter<'w, RawGamepadAxisChangedEvent>,
     motion: MessageWriter<'w, GamepadMotionSample>,
+    touchpad: MessageWriter<'w, GamepadTouchpadEvent>,
 }
 
 impl Writers<'_> {
@@ -100,11 +102,14 @@ pub(crate) fn poll(
             unsafe {
                 match SDL_EventType(event.r#type) {
                     SDL_EVENT_GAMEPAD_ADDED => {
-                        let id = event.gdevice.which;
+                        let e = event.gdevice;
+                        let timestamp = Duration::from_nanos(e.timestamp);
+                        let config = default_motion.0;
                         connect(
                             sdl,
-                            id,
-                            default_motion.0,
+                            e.which,
+                            timestamp,
+                            config,
                             &mut commands,
                             &mut gamepads,
                             &mut out,
@@ -132,26 +137,16 @@ pub(crate) fn poll(
                             out.sdl_axis(entity, SDL_GamepadAxis(e.axis.into()), e.value);
                         }
                     }
-                    t @ (SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN
+                    kind @ (SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN
                     | SDL_EVENT_GAMEPAD_TOUCHPAD_MOTION
                     | SDL_EVENT_GAMEPAD_TOUCHPAD_UP) => {
                         let e = event.gtouchpad;
-                        let finger = (t != SDL_EVENT_GAMEPAD_TOUCHPAD_UP).then(|| TouchpadFinger {
-                            position: Vec2::new(e.x, e.y),
-                            pressure: e.pressure,
-                        });
                         let Some(&(entity, _)) = gamepads.entities.get(&e.which.0) else {
                             continue;
                         };
-                        let Ok(mut pads) = touchpads.get_mut(entity) else {
-                            continue;
-                        };
-                        let slot = pads
-                            .0
-                            .get_mut(e.touchpad as usize)
-                            .and_then(|pad| pad.fingers.get_mut(e.finger as usize));
-                        if let Some(slot) = slot {
-                            *slot = finger;
+                        let pads = touchpads.get_mut(entity).ok();
+                        if let Some(event) = touchpad::event(entity, kind, &e, pads) {
+                            out.touchpad.write(event);
                         }
                     }
                     SDL_EVENT_GAMEPAD_SENSOR_UPDATE => {
@@ -178,6 +173,7 @@ pub(crate) fn poll(
 fn connect(
     sdl: &mut Sdl,
     id: SDL_JoystickID,
+    timestamp: Duration,
     default_motion: GamepadMotionConfig,
     commands: &mut Commands,
     gamepads: &mut Gamepads,
@@ -196,8 +192,10 @@ fn connect(
         .unwrap_or_else(|| commands.spawn_empty().id());
     let mut entity_commands = commands.entity(entity);
     entity_commands.insert(SdlGamepad { instance_id: id.0 });
-    if let Some(touchpads) = touchpads(gamepad) {
-        entity_commands.insert(touchpads);
+    if let Some(pads) = touchpad::touchpads(gamepad) {
+        let started = touchpad::started(entity, &pads, timestamp);
+        out.touchpad.write_batch(started);
+        entity_commands.insert(pads);
     }
     if let Some(sensors) = motion::sensors(gamepad) {
         entity_commands.insert((sensors, GamepadMotion::default()));
@@ -243,37 +241,6 @@ fn identify(id: SDL_JoystickID, gamepad: NonNull<SDL_Gamepad>) -> (GamepadConnec
                 .or_else(|| sdl::string(SDL_GetGamepadPath(gamepad))),
         };
         (connection, key)
-    }
-}
-
-/// The touchpad layout and any fingers already down, if the gamepad has touchpads.
-fn touchpads(gamepad: NonNull<SDL_Gamepad>) -> Option<GamepadTouchpads> {
-    let gamepad = gamepad.as_ptr();
-    // SAFETY: `gamepad` is open; indices stay within the counts SDL reports.
-    unsafe {
-        let pads = (0..SDL_GetNumGamepadTouchpads(gamepad)).map(|pad| {
-            let fingers = (0..SDL_GetNumGamepadTouchpadFingers(gamepad, pad)).map(|finger| {
-                let (mut down, mut x, mut y, mut pressure) = (false, 0.0, 0.0, 0.0);
-                SDL_GetGamepadTouchpadFinger(
-                    gamepad,
-                    pad,
-                    finger,
-                    &mut down,
-                    &mut x,
-                    &mut y,
-                    &mut pressure,
-                );
-                down.then(|| TouchpadFinger {
-                    position: Vec2::new(x, y),
-                    pressure,
-                })
-            });
-            Touchpad {
-                fingers: fingers.collect(),
-            }
-        });
-        let pads: Vec<_> = pads.collect();
-        (!pads.is_empty()).then_some(GamepadTouchpads(pads))
     }
 }
 
