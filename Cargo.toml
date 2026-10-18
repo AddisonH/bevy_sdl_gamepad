@@ -2,7 +2,14 @@
 name = "bevy_sdl_gamepad"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
+description = "An SDL3 gamepad backend for Bevy: a drop-in replacement for bevy_gilrs, with gyro, touchpads and touch sensors"
+repository = "https://github.com/AddisonH/bevy_sdl_gamepad"
+readme = "README.md"
+keywords = ["bevy", "gamepad", "sdl3", "gyro", "controller"]
+categories = ["game-development", "hardware-support"]
+exclude = [".github"]
 
 [dependencies]
 bevy_app = { version = "0.20.0", default-features = false }
