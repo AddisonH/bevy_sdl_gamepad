@@ -15,6 +15,7 @@ use bevy_math::{Vec2, Vec3};
 #[derive(Component, Debug, Clone, Default, PartialEq)]
 pub struct GamepadTouchpads(pub Vec<Touchpad>);
 
+/// One touchpad of a gamepad.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Touchpad {
     /// One slot per finger the touchpad can track; `None` while that finger is lifted.
@@ -27,6 +28,7 @@ pub struct Touchpad {
 }
 
 impl Touchpad {
+    /// Whether any finger is on this touchpad.
     pub fn touched(&self) -> bool {
         self.fingers.iter().any(Option::is_some)
     }
@@ -37,11 +39,13 @@ impl Touchpad {
 /// Fingers still down when their gamepad disconnects get [`TouchPhase::Ended`].
 #[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub struct GamepadTouchpadEvent {
+    /// The gamepad entity.
     pub gamepad: Entity,
     /// Index into [`GamepadTouchpads`].
     pub touchpad: usize,
     /// Index into [`Touchpad::fingers`].
     pub finger: usize,
+    /// Whether the finger started touching, moved, or lifted.
     pub phase: TouchPhase,
     /// Where the finger is, or last was for [`TouchPhase::Ended`].
     pub at: TouchpadFinger,
@@ -49,6 +53,7 @@ pub struct GamepadTouchpadEvent {
     pub timestamp: Duration,
 }
 
+/// Where a finger is on a touchpad.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TouchpadFinger {
     /// From (0, 0) at the top left to (1, 1) at the bottom right, like window coordinates.
@@ -62,7 +67,9 @@ pub struct TouchpadFinger {
 /// Sensors cost bandwidth and battery, so they are opt-in. The setting survives reconnection.
 #[derive(Component, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GamepadMotionConfig {
+    /// Turn on the gyroscope.
     pub gyro: bool,
+    /// Turn on the accelerometer.
     pub accel: bool,
 }
 
@@ -71,13 +78,18 @@ pub struct GamepadMotionConfig {
 /// Present only on gamepads with at least one motion sensor.
 #[derive(Component, Debug, Clone, Copy, Default, PartialEq)]
 pub struct GamepadMotionSensors {
+    /// The gyroscope's sample rate, if the gamepad has one.
     pub gyro: Option<f32>,
+    /// The accelerometer's sample rate, if the gamepad has one.
     pub accel: Option<f32>,
 }
 
+/// A kind of motion sensor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MotionSensor {
+    /// Measures angular velocity.
     Gyro,
+    /// Measures acceleration, including gravity.
     Accel,
 }
 
@@ -87,7 +99,9 @@ pub enum MotionSensor {
 /// front of you.
 #[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub struct GamepadMotionSample {
+    /// The gamepad entity.
     pub gamepad: Entity,
+    /// Which sensor took the reading.
     pub sensor: MotionSensor,
     /// Gyro: angular velocity in radians per second, counter-clockwise positive.
     /// Accel: acceleration in m/s², including gravity.
@@ -114,9 +128,13 @@ pub struct GamepadMotion {
 /// A sensor that only knows whether it is being touched, such as on top of a stick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GamepadTouchSensor {
+    /// On top of the left stick.
     LeftStick,
+    /// On top of the right stick.
     RightStick,
+    /// On the left handle, touched while holding it.
     LeftGrip,
+    /// On the right handle, touched while holding it.
     RightGrip,
 }
 

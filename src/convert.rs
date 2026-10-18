@@ -21,10 +21,15 @@ pub mod button {
     pub const LEFT_PADDLE2: GamepadButton = other(SDL_GAMEPAD_BUTTON_LEFT_PADDLE2);
     /// Touchpad click.
     pub const TOUCHPAD: GamepadButton = other(SDL_GAMEPAD_BUTTON_TOUCHPAD);
+    /// An extra button whose meaning depends on the gamepad, like [`MISC3`] to [`MISC6`].
     pub const MISC2: GamepadButton = other(SDL_GAMEPAD_BUTTON_MISC2);
+    #[expect(missing_docs, reason = "documented on MISC2")]
     pub const MISC3: GamepadButton = other(SDL_GAMEPAD_BUTTON_MISC3);
+    #[expect(missing_docs, reason = "documented on MISC2")]
     pub const MISC4: GamepadButton = other(SDL_GAMEPAD_BUTTON_MISC4);
+    #[expect(missing_docs, reason = "documented on MISC2")]
     pub const MISC5: GamepadButton = other(SDL_GAMEPAD_BUTTON_MISC5);
+    #[expect(missing_docs, reason = "documented on MISC2")]
     pub const MISC6: GamepadButton = other(SDL_GAMEPAD_BUTTON_MISC6);
 }
 

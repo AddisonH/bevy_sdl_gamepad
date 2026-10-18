@@ -5,6 +5,8 @@
 //! gamepad backend when using this plugin, with
 //! `DefaultPlugins.build().disable::<GilrsPlugin>()` or by turning off the `bevy_gilrs` feature.
 
+#![warn(missing_docs)]
+
 pub mod ext;
 
 mod convert;
@@ -32,6 +34,7 @@ use sdl3_sys::hints::{
     SDL_HINT_NO_SIGNAL_HANDLERS,
 };
 
+/// Connects gamepads through SDL and keeps their `bevy_input` and [`ext`] state up to date.
 pub struct SdlGamepadPlugin {
     /// SDL hints set before SDL is initialised, as `(name, value)`.
     ///
