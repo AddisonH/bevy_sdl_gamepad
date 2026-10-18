@@ -1,7 +1,8 @@
 //! A controller test screen laid out like a Steam Controller, showing the most recently used
 //! gamepad.
 //!
-//! Keys 1–3 play test rumbles and 4 stops them.
+//! Keys 1–3 play test rumbles and 4 stops them. R recentres the gyro aim and G toggles the
+//! motion sensors.
 
 use core::time::Duration;
 
@@ -16,7 +17,9 @@ use bevy::{
     input::gamepad::{GamepadRumbleIntensity, GamepadRumbleRequest},
     prelude::*,
 };
-use bevy_sdl_gamepad::ext::GamepadTouchpads;
+use bevy_sdl_gamepad::ext::{
+    GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadTouchpads, MotionSensor,
+};
 use bevy_sdl_gamepad::{SdlGamepad, SdlGamepadPlugin, button};
 
 const WIDTH: f32 = 1120.0;
@@ -25,6 +28,11 @@ const STICK: f32 = 120.0;
 const KNOB: f32 = 32.0;
 const PAD: f32 = 220.0;
 const FINGER: f32 = 18.0;
+const AIM_WIDTH: f32 = 220.0;
+const AIM_HEIGHT: f32 = 140.0;
+const AIM_DOT: f32 = 14.0;
+/// How far the aim dot can travel from the centre, in radians of controller rotation.
+const AIM_RANGE: f32 = 0.6;
 
 const IDLE: ThemeToken = tokens::BUTTON_BG;
 const LIT: ThemeToken = tokens::BUTTON_PRIMARY_BG;
@@ -82,10 +90,18 @@ fn main() {
                 ..default()
             }),
             FeathersPlugins,
-            SdlGamepadPlugin::default(),
+            SdlGamepadPlugin {
+                motion: GamepadMotionConfig {
+                    gyro: true,
+                    accel: true,
+                },
+                ..default()
+            },
         ))
         .insert_resource(UiTheme(create_dark_theme()))
         .init_resource::<ActivePad>()
+        .init_resource::<GyroAim>()
+        .init_resource::<SampleRates>()
         .add_systems(Startup, scene.spawn())
         .add_systems(
             Update,
@@ -98,7 +114,9 @@ fn main() {
                     show_sticks,
                     show_touchpads,
                     show_other,
+                    (count_samples, show_motion).chain(),
                     rumble,
+                    toggle_motion,
                 ),
             )
                 .chain(),
@@ -161,6 +179,24 @@ struct HeaderText;
 
 #[derive(Component, Default, Clone)]
 struct OtherText;
+
+#[derive(Component, Default, Clone)]
+struct AimDot;
+
+#[derive(Component, Default, Clone)]
+struct MotionText;
+
+/// Where the controller points, in radians of yaw (x) and pitch (y) from where it was recentred.
+#[derive(Resource, Default)]
+struct GyroAim(Vec2);
+
+/// Motion samples counted over the current second, and the counts from the last full one.
+#[derive(Resource, Default)]
+struct SampleRates {
+    counting: (u32, u32),
+    shown: (u32, u32),
+    second: f32,
+}
 
 /// Mirrors a left-side x position onto the right side.
 fn mirror(x: f32, width: f32) -> f32 {
@@ -311,6 +347,42 @@ fn grip(paddles: [(&'static str, GamepadButton); 2], touch: GamepadButton, x: f3
     }
 }
 
+fn gyro_panel(x: f32, y: f32) -> impl Scene {
+    let dot_x = (AIM_WIDTH - AIM_DOT) / 2.0 - 3.0;
+    let dot_y = (AIM_HEIGHT - AIM_DOT) / 2.0 - 3.0;
+    bsn! {
+        @place(x, y, AIM_WIDTH, AIM_HEIGHT + 70.0)
+        Node { flex_direction: FlexDirection::Column, justify_content: JustifyContent::Start, row_gap: px(6) }
+        Children [
+            Node {
+                width: px(AIM_WIDTH),
+                height: px(AIM_HEIGHT),
+                border: UiRect::all(px(3)),
+                border_radius: BorderRadius::all(px(12)),
+            }
+            ThemeBackgroundColor(tokens::PANE_BODY_BG)
+            ThemeBorderColor(IDLE)
+            Children [
+                @place(0.0, (AIM_HEIGHT - 6.0) / 2.0 - 0.5, AIM_WIDTH - 6.0, 1.0)
+                ThemeBackgroundColor(IDLE)
+                --
+                @place((AIM_WIDTH - 6.0) / 2.0 - 0.5, 0.0, 1.0, AIM_HEIGHT - 6.0)
+                ThemeBackgroundColor(IDLE)
+                --
+                @place(dot_x, dot_y, AIM_DOT, AIM_DOT)
+                Node { border_radius: BorderRadius::all(px(AIM_DOT / 2.0)) }
+                ThemeBackgroundColor(LIT)
+                AimDot
+                --
+                Node { position_type: PositionType::Absolute, left: px(8), top: px(4) }
+                Children [ @label_dim("Gyro aim") ]
+            ]
+            --
+            @label_dim("") MotionText
+        ]
+    }
+}
+
 fn scene() -> impl SceneList {
     bsn_list! {
         Camera2d
@@ -357,6 +429,8 @@ fn root() -> impl Scene {
             --
             @trackpad("Right pad · 1", 1, RIGHT_PAD_CLICK, mirror(220.0, PAD), 330.0)
             --
+            @gyro_panel(mirror(0.0, AIM_WIDTH) / 2.0, 330.0)
+            --
             @grip([("L4", button::LEFT_PADDLE1), ("L5", button::LEFT_PADDLE2)], LEFT_GRIP_TOUCH, 60.0)
             --
             @grip([("R4", button::RIGHT_PADDLE1), ("R5", button::RIGHT_PADDLE2)], RIGHT_GRIP_TOUCH, mirror(60.0, 110.0))
@@ -371,7 +445,7 @@ fn root() -> impl Scene {
             Children [
                 @label("") OtherText
                 --
-                @label_dim("Rumble: 1 strong 0.5 s · 2 weak 0.5 s · 3 both stacked, 2 s · 4 stop")
+                @label_dim("Rumble: 1 strong 0.5 s · 2 weak 0.5 s · 3 both stacked, 2 s · 4 stop · R recentre aim · G motion on/off")
             ]
         ]
     }
@@ -549,4 +623,77 @@ fn rumble(
     if keys.just_pressed(KeyCode::Digit4) {
         requests.write(GamepadRumbleRequest::Stop { gamepad });
     }
+}
+
+fn count_samples(
+    time: Res<Time>,
+    active_pad: Res<ActivePad>,
+    mut samples: MessageReader<GamepadMotionSample>,
+    mut rates: ResMut<SampleRates>,
+) {
+    for sample in samples.read().filter(|s| Some(s.gamepad) == active_pad.0) {
+        match sample.sensor {
+            MotionSensor::Gyro => rates.counting.0 += 1,
+            MotionSensor::Accel => rates.counting.1 += 1,
+        }
+    }
+    rates.second += time.delta_secs();
+    if rates.second >= 1.0 {
+        rates.second -= 1.0;
+        rates.shown = core::mem::take(&mut rates.counting);
+    }
+}
+
+fn show_motion(
+    active_pad: Res<ActivePad>,
+    motions: Query<(&GamepadMotion, Option<&GamepadMotionConfig>)>,
+    keys: Res<ButtonInput<KeyCode>>,
+    rates: Res<SampleRates>,
+    mut aim: ResMut<GyroAim>,
+    mut dot: Single<&mut Node, With<AimDot>>,
+    mut text: Single<&mut Text, With<MotionText>>,
+) {
+    let Some((motion, config)) = active(&active_pad, &motions) else {
+        text.0 = "No motion sensors".into();
+        return;
+    };
+    // Turning left is positive rotation around Y; tilting the top towards you is positive
+    // rotation around X.
+    aim.0 += Vec2::new(-motion.rotation_delta.y, motion.rotation_delta.x);
+    aim.0 = aim.0.clamp(Vec2::splat(-AIM_RANGE), Vec2::splat(AIM_RANGE));
+    if keys.just_pressed(KeyCode::KeyR) {
+        aim.0 = Vec2::ZERO;
+    }
+    let travel = Vec2::new(AIM_WIDTH - AIM_DOT, AIM_HEIGHT - AIM_DOT) / 2.0 - 3.0;
+    let at = travel + aim.0 / AIM_RANGE * Vec2::new(travel.x, -travel.y);
+    dot.left = px(at.x);
+    dot.top = px(at.y);
+
+    let on = config.is_some_and(|config| config.gyro || config.accel);
+    let [gx, gy, gz] = motion.angular_velocity.to_array();
+    let [ax, ay, az] = motion.acceleration.to_array();
+    text.0 = format!(
+        "gyro {gx:+.2} {gy:+.2} {gz:+.2} rad/s\naccel {ax:+.1} {ay:+.1} {az:+.1} m/s²\n{} · {} gyro, {} accel samples/s",
+        if on { "sensors on" } else { "sensors off" },
+        rates.shown.0,
+        rates.shown.1,
+    );
+}
+
+fn toggle_motion(
+    mut commands: Commands,
+    active_pad: Res<ActivePad>,
+    keys: Res<ButtonInput<KeyCode>>,
+    configs: Query<Option<&GamepadMotionConfig>, With<GamepadMotion>>,
+) {
+    if !keys.just_pressed(KeyCode::KeyG) {
+        return;
+    }
+    let Some(entity) = active_pad.0 else { return };
+    let Ok(config) = configs.get(entity) else { return };
+    let on = !config.is_some_and(|config| config.gyro);
+    commands.entity(entity).insert(GamepadMotionConfig {
+        gyro: on,
+        accel: on,
+    });
 }

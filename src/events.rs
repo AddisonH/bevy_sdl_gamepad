@@ -1,23 +1,27 @@
-use core::ptr::NonNull;
+use core::{ptr::NonNull, time::Duration};
 
 use bevy_ecs::{
     entity::{Entity, EntityHashMap},
     message::MessageWriter,
     resource::Resource,
-    system::{Commands, NonSendMarker, Query, ResMut, SystemParam},
+    system::{Commands, NonSendMarker, Query, Res, ResMut, SystemParam},
 };
-use crate::ext::{GamepadTouchpads, Touchpad, TouchpadFinger};
-use bevy_math::Vec2;
 use bevy_input::gamepad::{
     GamepadAxis, GamepadButton, GamepadConnection, GamepadConnectionEvent,
     RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent,
 };
+use bevy_math::{Vec2, Vec3};
 use bevy_platform::collections::HashMap;
 use sdl3_sys::{events::*, gamepad::*, joystick::SDL_JoystickID};
 
 use crate::{
     SdlGamepad,
     convert::{self, Input},
+    ext::{
+        GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors,
+        GamepadTouchpads, Touchpad, TouchpadFinger,
+    },
+    motion::{self, DefaultMotionConfig},
     sdl::{self, Sdl},
 };
 
@@ -34,6 +38,7 @@ pub(crate) struct Gamepads {
     entities: HashMap<u32, (Entity, DeviceKey)>,
     pub(crate) ids: EntityHashMap<u32>,
     disconnected: HashMap<DeviceKey, Entity>,
+    last_gyro: HashMap<u32, Duration>,
 }
 
 #[derive(SystemParam)]
@@ -42,6 +47,7 @@ pub(crate) struct Writers<'w> {
     connection: MessageWriter<'w, GamepadConnectionEvent>,
     button: MessageWriter<'w, RawGamepadButtonChangedEvent>,
     axis: MessageWriter<'w, RawGamepadAxisChangedEvent>,
+    motion: MessageWriter<'w, GamepadMotionSample>,
 }
 
 impl Writers<'_> {
@@ -78,7 +84,14 @@ pub(crate) fn poll(
     mut gamepads: ResMut<Gamepads>,
     mut out: Writers,
     mut touchpads: Query<&mut GamepadTouchpads>,
+    mut motions: Query<&mut GamepadMotion>,
+    default_motion: Res<DefaultMotionConfig>,
 ) {
+    for mut motion in &mut motions {
+        if motion.rotation_delta != Vec3::ZERO {
+            motion.rotation_delta = Vec3::ZERO;
+        }
+    }
     sdl::with(|sdl| {
         let mut event = SDL_Event::default();
         // SAFETY: SDL is initialised and this runs on the main thread.
@@ -87,7 +100,8 @@ pub(crate) fn poll(
             unsafe {
                 match SDL_EventType(event.r#type) {
                     SDL_EVENT_GAMEPAD_ADDED => {
-                        connect(sdl, event.gdevice.which, &mut commands, &mut gamepads, &mut out);
+                        let id = event.gdevice.which;
+                        connect(sdl, id, default_motion.0, &mut commands, &mut gamepads, &mut out);
                     }
                     SDL_EVENT_GAMEPAD_REMOVED => {
                         disconnect(sdl, event.gdevice.which, &mut commands, &mut gamepads, &mut out);
@@ -127,6 +141,20 @@ pub(crate) fn poll(
                             *slot = finger;
                         }
                     }
+                    SDL_EVENT_GAMEPAD_SENSOR_UPDATE => {
+                        let e = event.gsensor;
+                        let Some(&(entity, _)) = gamepads.entities.get(&e.which.0) else {
+                            continue;
+                        };
+                        let mut last = gamepads.last_gyro.get(&e.which.0).copied();
+                        let motion = motions.get_mut(entity).ok();
+                        if let Some(sample) = motion::sample(entity, &e, motion, &mut last) {
+                            out.motion.write(sample);
+                        }
+                        if let Some(last) = last {
+                            gamepads.last_gyro.insert(e.which.0, last);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -137,6 +165,7 @@ pub(crate) fn poll(
 fn connect(
     sdl: &mut Sdl,
     id: SDL_JoystickID,
+    default_motion: GamepadMotionConfig,
     commands: &mut Commands,
     gamepads: &mut Gamepads,
     out: &mut Writers,
@@ -152,12 +181,19 @@ fn connect(
         .remove(&key)
         .filter(|&entity| commands.get_entity(entity).is_ok())
         .unwrap_or_else(|| commands.spawn_empty().id());
-    commands.entity(entity).insert((
-        SdlGamepad {
-            instance_id: id.0,
-        },
-        touchpads(gamepad),
-    ));
+    let mut entity_commands = commands.entity(entity);
+    entity_commands.insert(SdlGamepad {
+        instance_id: id.0,
+    });
+    if let Some(touchpads) = touchpads(gamepad) {
+        entity_commands.insert(touchpads);
+    }
+    if let Some(sensors) = motion::sensors(gamepad) {
+        entity_commands.insert((sensors, GamepadMotion::default()));
+        if default_motion != GamepadMotionConfig::default() {
+            entity_commands.insert_if_new(default_motion);
+        }
+    }
     gamepads.entities.insert(id.0, (entity, key));
     gamepads.ids.insert(entity, id.0);
     out.connection(entity, connection);
@@ -199,8 +235,8 @@ fn identify(id: SDL_JoystickID, gamepad: NonNull<SDL_Gamepad>) -> (GamepadConnec
     }
 }
 
-/// The touchpad layout and any fingers already down.
-fn touchpads(gamepad: NonNull<SDL_Gamepad>) -> GamepadTouchpads {
+/// The touchpad layout and any fingers already down, if the gamepad has touchpads.
+fn touchpads(gamepad: NonNull<SDL_Gamepad>) -> Option<GamepadTouchpads> {
     let gamepad = gamepad.as_ptr();
     // SAFETY: `gamepad` is open; indices stay within the counts SDL reports.
     unsafe {
@@ -225,7 +261,8 @@ fn touchpads(gamepad: NonNull<SDL_Gamepad>) -> GamepadTouchpads {
                 fingers: fingers.collect(),
             }
         });
-        GamepadTouchpads(pads.collect())
+        let pads: Vec<_> = pads.collect();
+        (!pads.is_empty()).then_some(GamepadTouchpads(pads))
     }
 }
 
@@ -241,9 +278,10 @@ fn disconnect(
         return;
     };
     gamepads.ids.remove(&entity);
+    gamepads.last_gyro.remove(&id.0);
     gamepads.disconnected.insert(key, entity);
     if let Ok(mut entity) = commands.get_entity(entity) {
-        entity.remove::<(SdlGamepad, GamepadTouchpads)>();
+        entity.remove::<(SdlGamepad, GamepadTouchpads, GamepadMotionSensors, GamepadMotion)>();
     }
     out.connection(entity, GamepadConnection::Disconnected);
 }

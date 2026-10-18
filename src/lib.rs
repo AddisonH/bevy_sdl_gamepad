@@ -8,6 +8,7 @@ pub mod ext;
 
 mod convert;
 mod events;
+mod motion;
 mod rumble;
 mod sdl;
 
@@ -26,6 +27,9 @@ pub struct SdlGamepadPlugin {
     ///
     /// An environment variable with the same name overrides the value given here.
     pub hints: Vec<(String, String)>,
+    /// Motion sensors to turn on for gamepads that connect without a
+    /// [`GamepadMotionConfig`](ext::GamepadMotionConfig). Off by default.
+    pub motion: ext::GamepadMotionConfig,
 }
 
 impl Default for SdlGamepadPlugin {
@@ -39,6 +43,7 @@ impl Default for SdlGamepadPlugin {
                 hint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1"),
                 hint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1"),
             ],
+            motion: ext::GamepadMotionConfig::default(),
         }
     }
 }
@@ -48,8 +53,13 @@ impl Plugin for SdlGamepadPlugin {
         let hints = self.hints.clone();
         app.init_resource::<events::Gamepads>()
             .init_resource::<rumble::Rumbles>()
+            .insert_resource(motion::DefaultMotionConfig(self.motion))
+            .add_message::<ext::GamepadMotionSample>()
             .add_systems(PreStartup, move |_: NonSendMarker| sdl::init(&hints))
-            .add_systems(PreUpdate, events::poll.before(InputSystems))
+            .add_systems(
+                PreUpdate,
+                (events::poll, motion::apply_config).chain().before(InputSystems),
+            )
             .add_systems(PostUpdate, rumble::play)
             .add_systems(Last, sdl::shutdown_on_exit);
     }
