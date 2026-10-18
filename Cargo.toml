@@ -13,7 +13,7 @@ bevy_math = { version = "0.20.0", default-features = false, features = ["std"] }
 bevy_platform = { version = "0.20.0", default-features = false }
 bevy_time = { version = "0.20.0", default-features = false }
 sdl3-sys = { version = "0.7.2", default-features = false, features = [
-  "build-from-source-static",
+  "use-pkg-config",
   "debug-impls",
   "no-default-subsystems",
   "sdl-joystick",
@@ -23,6 +23,12 @@ sdl3-sys = { version = "0.7.2", default-features = false, features = [
   "sdl-power",
   "sdl-unix-console-build",
 ] }
+
+[features]
+default = ["build-sdl"]
+# Build SDL from source and link it statically, which needs CMake and a C compiler. Without this
+# feature, the SDL 3 library installed on the system is found with pkg-config and linked.
+build-sdl = ["sdl3-sys/build-from-source-static"]
 
 [dev-dependencies]
 # Bevy's `default_platform` would bring in `bevy_gilrs`, so its parts are listed instead.
