@@ -1,8 +1,9 @@
 //! An SDL3 gamepad backend for Bevy, replacing `bevy_gilrs`.
 //!
 //! Gamepads appear through the usual `bevy_input` API ([`Gamepad`](bevy_input::gamepad::Gamepad),
-//! [`GamepadRumbleRequest`](bevy_input::gamepad::GamepadRumbleRequest)). Disable Bevy's
-//! `bevy_gilrs` feature when using this plugin.
+//! [`GamepadRumbleRequest`](bevy_input::gamepad::GamepadRumbleRequest)). Disable Bevy's own
+//! gamepad backend when using this plugin, with
+//! `DefaultPlugins.build().disable::<GilrsPlugin>()` or by turning off the `bevy_gilrs` feature.
 
 pub mod ext;
 
@@ -17,8 +18,15 @@ mod touchpad;
 pub use convert::button;
 
 use bevy_app::{App, Last, Plugin, PostUpdate, PreStartup, PreUpdate};
-use bevy_ecs::{component::Component, schedule::IntoScheduleConfigs, system::NonSendMarker};
-use bevy_input::InputSystems;
+use bevy_ecs::{
+    component::Component,
+    entity::Entity,
+    query::{Added, Without},
+    schedule::IntoScheduleConfigs,
+    system::{NonSendMarker, Query},
+};
+use bevy_input::{InputSystems, gamepad::Gamepad};
+use bevy_log::warn_once;
 use sdl3_sys::hints::{
     SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, SDL_HINT_JOYSTICK_HIDAPI_STEAM,
     SDL_HINT_NO_SIGNAL_HANDLERS,
@@ -65,6 +73,7 @@ impl Plugin for SdlGamepadPlugin {
                     .chain()
                     .before(InputSystems),
             )
+            .add_systems(PreUpdate, warn_other_backends.after(InputSystems))
             .add_systems(PostUpdate, rumble::play)
             .add_systems(Last, sdl::shutdown_on_exit);
     }
@@ -80,5 +89,15 @@ impl SdlGamepad {
     /// The SDL joystick instance ID. SDL never reuses one, even when the same device reconnects.
     pub fn instance_id(&self) -> u32 {
         self.instance_id
+    }
+}
+
+fn warn_other_backends(gamepads: Query<Entity, (Added<Gamepad>, Without<SdlGamepad>)>) {
+    if let Some(gamepad) = gamepads.iter().next() {
+        warn_once!(
+            "Gamepad {gamepad} was connected by another backend, so controllers may appear twice. \
+             If Bevy's GilrsPlugin is enabled, disable it with \
+             `DefaultPlugins.build().disable::<GilrsPlugin>()`."
+        );
     }
 }
