@@ -16,6 +16,7 @@ use bevy::{
     },
     input::gamepad::{GamepadRumbleIntensity, GamepadRumbleRequest},
     prelude::*,
+    window::{PrimaryWindow, WindowResized},
 };
 use bevy_sdl_gamepad::ext::{
     GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadTouchSensor,
@@ -106,6 +107,7 @@ fn main() {
                     (count_events, show_motion).chain(),
                     rumble,
                     toggle_motion,
+                    scale_to_window,
                 ),
             )
                 .chain(),
@@ -417,8 +419,15 @@ fn root() -> impl Scene {
     use GamepadAxis::*;
     use GamepadButton::*;
     bsn! {
-        Node { width: percent(100), height: percent(100) }
+        Node {
+            width: percent(100),
+            height: percent(100),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+        }
         ThemeBackgroundColor(tokens::WINDOW_BG)
+        Children [
+        Node { width: px(WIDTH), height: px(HEIGHT) }
         Children [
             Node { position_type: PositionType::Absolute, left: px(16), top: px(10) }
             Children [ @label("") HeaderText ]
@@ -469,6 +478,7 @@ fn root() -> impl Scene {
                 --
                 @label_dim("Rumble: 1 strong 0.5 s · 2 weak 0.5 s · 3 both stacked, 2 s · 4 stop · R recentre aim · G motion on/off")
             ]
+        ]
         ]
     }
 }
@@ -762,4 +772,15 @@ fn toggle_motion(
         gyro: on,
         accel: on,
     });
+}
+
+/// Scales the whole screen to fit the window, keeping its proportions.
+fn scale_to_window(
+    mut resized: MessageReader<WindowResized>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut scale: ResMut<UiScale>,
+) {
+    if resized.read().last().is_some() {
+        scale.0 = (window.width() / WIDTH).min(window.height() / HEIGHT);
+    }
 }
