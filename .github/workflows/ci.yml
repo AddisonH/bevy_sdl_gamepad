@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Bevy's Linux dependencies
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo test
