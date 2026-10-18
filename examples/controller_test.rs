@@ -1,21 +1,21 @@
 //! A controller test screen laid out like a Steam Controller, showing the most recently used
 //! gamepad.
-//!
-//! Keys 1–3 play test rumbles and 4 stops them. R recentres the gyro aim and G toggles the
-//! motion sensors.
 
 use core::time::Duration;
 
 use bevy::{
     feathers::{
         FeathersPlugins,
+        controls::{FeathersButton, FeathersToggleSwitch},
         dark_theme::create_dark_theme,
-        display::{label, label_dim},
+        display::{caption, label, label_dim},
         theme::{ThemeBackgroundColor, ThemeBorderColor, ThemeToken, UiTheme},
         tokens,
     },
     input::gamepad::{GamepadRumbleIntensity, GamepadRumbleRequest},
     prelude::*,
+    ui::Checked,
+    ui_widgets::{Activate, ValueChange},
     window::{PrimaryWindow, WindowResized},
 };
 use bevy_sdl_gamepad::ext::{
@@ -105,8 +105,7 @@ fn main() {
                     show_touchpads,
                     show_other,
                     (count_events, show_motion).chain(),
-                    rumble,
-                    toggle_motion,
+                    show_motion_toggle,
                     scale_to_window,
                 ),
             )
@@ -192,6 +191,37 @@ struct AimDot;
 
 #[derive(Component, Default, Clone)]
 struct MotionText;
+
+#[derive(Component, Default, Clone)]
+struct MotionToggle;
+
+#[derive(Clone, Copy)]
+enum RumbleTest {
+    Strong,
+    Weak,
+    /// Two overlapping rumbles of different lengths, to show that they add up.
+    Stacked,
+    Stop,
+}
+
+impl RumbleTest {
+    fn requests(self, gamepad: Entity) -> Vec<GamepadRumbleRequest> {
+        let add = |intensity, seconds| GamepadRumbleRequest::Add {
+            gamepad,
+            intensity,
+            duration: Duration::from_secs_f32(seconds),
+        };
+        match self {
+            Self::Strong => vec![add(GamepadRumbleIntensity::STRONG_MAX, 0.5)],
+            Self::Weak => vec![add(GamepadRumbleIntensity::WEAK_MAX, 0.5)],
+            Self::Stacked => vec![
+                add(GamepadRumbleIntensity::strong_motor(0.5), 2.0),
+                add(GamepadRumbleIntensity::weak_motor(0.5), 1.0),
+            ],
+            Self::Stop => vec![GamepadRumbleRequest::Stop { gamepad }],
+        }
+    }
+}
 
 /// Where the controller points, in radians of yaw (x) and pitch (y) from where it was recentred.
 #[derive(Resource, Default)]
@@ -407,6 +437,53 @@ fn gyro_panel(x: f32, y: f32) -> impl Scene {
     }
 }
 
+fn button(text: &'static str) -> impl Scene {
+    bsn! {
+        @FeathersButton { @caption: bsn! { @caption(text) } }
+    }
+}
+
+fn rumble_button(text: &'static str, test: RumbleTest) -> impl Scene {
+    bsn! {
+        @button(text)
+        on(move |_: On<Activate>, active: Res<ActivePad>, mut requests: MessageWriter<GamepadRumbleRequest>| {
+            if let Some(gamepad) = active.0 {
+                requests.write_batch(test.requests(gamepad));
+            }
+        })
+    }
+}
+
+fn controls() -> impl Scene {
+    bsn! {
+        Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(8) }
+        Children [
+            @label_dim("Rumble")
+            --
+            @rumble_button("Strong", RumbleTest::Strong)
+            --
+            @rumble_button("Weak", RumbleTest::Weak)
+            --
+            @rumble_button("Stacked", RumbleTest::Stacked)
+            --
+            @rumble_button("Stop", RumbleTest::Stop)
+            --
+            Node { width: px(24) }
+            --
+            @button("Recentre aim")
+            on(|_: On<Activate>, mut aim: ResMut<GyroAim>| aim.0 = Vec2::ZERO)
+            --
+            Node { width: px(24) }
+            --
+            @FeathersToggleSwitch
+            MotionToggle
+            on(set_motion)
+            --
+            @label_dim("Motion sensors")
+        ]
+    }
+}
+
 fn scene() -> impl SceneList {
     bsn_list! {
         Camera2d
@@ -476,7 +553,7 @@ fn root() -> impl Scene {
             Children [
                 @label("") OtherText
                 --
-                @label_dim("Rumble: 1 strong 0.5 s · 2 weak 0.5 s · 3 both stacked, 2 s · 4 stop · R recentre aim · G motion on/off")
+                @controls()
             ]
         ]
         ]
@@ -667,32 +744,6 @@ fn show_other(
     };
 }
 
-fn rumble(
-    active_pad: Res<ActivePad>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mut requests: MessageWriter<GamepadRumbleRequest>,
-) {
-    let Some(gamepad) = active_pad.0 else { return };
-    let add = |intensity, seconds| GamepadRumbleRequest::Add {
-        gamepad,
-        intensity,
-        duration: Duration::from_secs_f32(seconds),
-    };
-    if keys.just_pressed(KeyCode::Digit1) {
-        requests.write(add(GamepadRumbleIntensity::STRONG_MAX, 0.5));
-    }
-    if keys.just_pressed(KeyCode::Digit2) {
-        requests.write(add(GamepadRumbleIntensity::WEAK_MAX, 0.5));
-    }
-    if keys.just_pressed(KeyCode::Digit3) {
-        requests.write(add(GamepadRumbleIntensity::strong_motor(0.5), 2.0));
-        requests.write(add(GamepadRumbleIntensity::weak_motor(0.5), 1.0));
-    }
-    if keys.just_pressed(KeyCode::Digit4) {
-        requests.write(GamepadRumbleRequest::Stop { gamepad });
-    }
-}
-
 fn count_events(
     time: Res<Time>,
     active_pad: Res<ActivePad>,
@@ -721,7 +772,6 @@ fn count_events(
 fn show_motion(
     active_pad: Res<ActivePad>,
     motions: Query<(&GamepadMotion, Option<&GamepadMotionConfig>)>,
-    keys: Res<ButtonInput<KeyCode>>,
     rates: Res<SampleRates>,
     mut aim: ResMut<GyroAim>,
     mut dot: Single<&mut Node, With<AimDot>>,
@@ -735,9 +785,6 @@ fn show_motion(
     // rotation around X.
     aim.0 += Vec2::new(-motion.rotation_delta.y, motion.rotation_delta.x);
     aim.0 = aim.0.clamp(Vec2::splat(-AIM_RANGE), Vec2::splat(AIM_RANGE));
-    if keys.just_pressed(KeyCode::KeyR) {
-        aim.0 = Vec2::ZERO;
-    }
     let travel = Vec2::new(AIM_WIDTH - AIM_DOT, AIM_HEIGHT - AIM_DOT) / 2.0 - 3.0;
     let at = travel + aim.0 / AIM_RANGE * Vec2::new(travel.x, -travel.y);
     dot.left = px(at.x);
@@ -754,24 +801,35 @@ fn show_motion(
     );
 }
 
-fn toggle_motion(
-    mut commands: Commands,
+fn set_motion(
+    change: On<ValueChange<bool>>,
     active_pad: Res<ActivePad>,
-    keys: Res<ButtonInput<KeyCode>>,
-    configs: Query<Option<&GamepadMotionConfig>, With<GamepadMotion>>,
+    with_motion: Query<(), With<GamepadMotion>>,
+    mut commands: Commands,
 ) {
-    if !keys.just_pressed(KeyCode::KeyG) {
-        return;
-    }
-    let Some(entity) = active_pad.0 else { return };
-    let Ok(config) = configs.get(entity) else {
+    let Some(gamepad) = active_pad.0.filter(|&entity| with_motion.contains(entity)) else {
         return;
     };
-    let on = !config.is_some_and(|config| config.gyro);
-    commands.entity(entity).insert(GamepadMotionConfig {
-        gyro: on,
-        accel: on,
+    commands.entity(gamepad).insert(GamepadMotionConfig {
+        gyro: change.value,
+        accel: change.value,
     });
+}
+
+/// Keeps the toggle showing the active gamepad's setting, whichever gamepad that is.
+fn show_motion_toggle(
+    mut commands: Commands,
+    active_pad: Res<ActivePad>,
+    configs: Query<&GamepadMotionConfig>,
+    toggle: Single<(Entity, Has<Checked>), With<MotionToggle>>,
+) {
+    let (toggle, checked) = *toggle;
+    let on = active(&active_pad, &configs).is_some_and(|config| config.gyro || config.accel);
+    if on && !checked {
+        commands.entity(toggle).insert(Checked);
+    } else if !on && checked {
+        commands.entity(toggle).remove::<Checked>();
+    }
 }
 
 /// Scales the whole screen to fit the window, keeping its proportions.
