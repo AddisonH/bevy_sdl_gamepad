@@ -14,7 +14,8 @@ use bevy_input::{
 use bevy_math::{Vec2, Vec3};
 use bevy_sdl_gamepad::ext::{
     GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors,
-    GamepadTouchpadEvent, GamepadTouchpads, MotionSensor, TouchpadFinger,
+    GamepadTouchSensor, GamepadTouchSensors, GamepadTouchpadEvent, GamepadTouchpads, MotionSensor,
+    TouchpadFinger,
 };
 use bevy_sdl_gamepad::{SdlGamepad, SdlGamepadPlugin, button};
 use bevy_time::TimePlugin;
@@ -22,6 +23,8 @@ use sdl3_sys::{gamepad::*, joystick::*, sensor::*};
 
 const VENDOR: u16 = 0x1209;
 const PRODUCT: u16 = 0x0001;
+/// Valve's vendor ID, with a product ID no real Valve device uses.
+const VALVE_VENDOR: u16 = 0x28de;
 
 // SDL state is process-wide, so tests take turns.
 static SDL_LOCK: Mutex<()> = Mutex::new(());
@@ -46,7 +49,7 @@ impl Harness {
         // Keep real gamepads out of the tests.
         plugin.hints.push((
             "SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT".into(),
-            format!("{VENDOR:#06x}/{PRODUCT:#06x}"),
+            format!("{VENDOR:#06x}/{PRODUCT:#06x},{VALVE_VENDOR:#06x}/{PRODUCT:#06x}"),
         ));
         let mut app = App::new();
         app.add_plugins((TimePlugin, InputPlugin, plugin));
@@ -109,6 +112,10 @@ struct VirtualPad {
 
 impl VirtualPad {
     fn attach() -> Self {
+        Self::attach_from(VENDOR)
+    }
+
+    fn attach_from(vendor: u16) -> Self {
         let touchpad = SDL_VirtualJoystickTouchpadDesc {
             nfingers: 2,
             ..Default::default()
@@ -125,7 +132,7 @@ impl VirtualPad {
         ];
         let desc = SDL_VirtualJoystickDesc {
             r#type: SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16,
-            vendor_id: VENDOR,
+            vendor_id: vendor,
             product_id: PRODUCT,
             naxes: SDL_GAMEPAD_AXIS_COUNT.0 as u16,
             nbuttons: SDL_GAMEPAD_BUTTON_COUNT.0 as u16,
@@ -412,5 +419,65 @@ fn gyro_samples_sum_into_rotation_delta() {
     let motion = *h.app.world().get::<GamepadMotion>(entity).unwrap();
     assert_eq!(motion.rotation_delta, Vec3::ZERO);
     assert_eq!(motion.angular_velocity, Vec3::new(3.0, 0.0, 0.0));
+    pad.detach();
+}
+
+#[test]
+fn valve_touch_sensors_are_not_buttons() {
+    let mut h = Harness::new();
+    let pad = VirtualPad::attach_from(VALVE_VENDOR);
+    pad.button(SDL_GAMEPAD_BUTTON_MISC6, true);
+    h.update();
+    let entity = h.entity(&pad);
+    let sensors = |h: &Harness| {
+        h.app
+            .world()
+            .get::<GamepadTouchSensors>(entity)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(
+        sensors(&h).sensors,
+        [
+            GamepadTouchSensor::LeftStick,
+            GamepadTouchSensor::RightStick,
+            GamepadTouchSensor::LeftGrip,
+            GamepadTouchSensor::RightGrip,
+        ]
+    );
+    assert!(sensors(&h).touched.pressed(GamepadTouchSensor::RightGrip));
+
+    pad.button(SDL_GAMEPAD_BUTTON_MISC3, true);
+    h.update();
+    assert!(
+        sensors(&h)
+            .touched
+            .just_pressed(GamepadTouchSensor::LeftStick)
+    );
+    let gamepad = h.gamepad(&pad);
+    assert!(!gamepad.pressed(button::MISC3));
+    assert!(!gamepad.pressed(button::MISC6));
+
+    pad.button(SDL_GAMEPAD_BUTTON_MISC3, false);
+    h.update();
+    assert!(
+        sensors(&h)
+            .touched
+            .just_released(GamepadTouchSensor::LeftStick)
+    );
+    pad.detach();
+}
+
+#[test]
+fn other_gamepads_keep_misc_buttons() {
+    let mut h = Harness::new();
+    let pad = VirtualPad::attach();
+    h.update();
+    let entity = h.entity(&pad);
+    assert!(h.app.world().get::<GamepadTouchSensors>(entity).is_none());
+
+    pad.button(SDL_GAMEPAD_BUTTON_MISC3, true);
+    h.update();
+    assert!(h.gamepad(&pad).pressed(button::MISC3));
     pad.detach();
 }

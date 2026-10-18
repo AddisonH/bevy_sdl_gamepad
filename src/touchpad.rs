@@ -8,9 +8,8 @@ use sdl3_sys::{events::*, gamepad::*};
 use crate::{
     button,
     ext::{GamepadTouchpadEvent, GamepadTouchpads, Touchpad, TouchpadFinger},
+    sdl::VALVE_VENDOR_ID,
 };
-
-const VALVE: u16 = 0x28de;
 
 /// The touchpad layout and any fingers already down, if the gamepad has touchpads.
 pub(crate) fn touchpads(gamepad: NonNull<SDL_Gamepad>) -> Option<GamepadTouchpads> {
@@ -21,7 +20,9 @@ pub(crate) fn touchpads(gamepad: NonNull<SDL_Gamepad>) -> Option<GamepadTouchpad
         let clicks: &[_] = match count {
             1 if SDL_GamepadHasButton(gamepad, SDL_GAMEPAD_BUTTON_TOUCHPAD) => &[button::TOUCHPAD],
             // SDL maps the right pad's click on Valve controllers to misc2.
-            2 if SDL_GetGamepadVendor(gamepad) == VALVE => &[button::TOUCHPAD, button::MISC2],
+            2 if SDL_GetGamepadVendor(gamepad) == VALVE_VENDOR_ID => {
+                &[button::TOUCHPAD, button::MISC2]
+            }
             _ => &[],
         };
         let pads: Vec<_> = (0..count)

@@ -1,6 +1,7 @@
 use core::{ptr::NonNull, time::Duration};
 
 use bevy_ecs::{
+    change_detection::DetectChangesMut,
     entity::{Entity, EntityHashMap},
     message::MessageWriter,
     resource::Resource,
@@ -19,10 +20,11 @@ use crate::{
     convert::{self, Input},
     ext::{
         GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadMotionSensors,
-        GamepadTouchpadEvent, GamepadTouchpads,
+        GamepadTouchSensors, GamepadTouchpadEvent, GamepadTouchpads,
     },
     motion::{self, DefaultMotionConfig},
     sdl::{self, Sdl},
+    touch_sensor::{self, TouchButtons},
     touchpad,
 };
 
@@ -40,6 +42,15 @@ pub(crate) struct Gamepads {
     pub(crate) ids: EntityHashMap<u32>,
     disconnected: HashMap<DeviceKey, Entity>,
     last_gyro: HashMap<u32, Duration>,
+    touch_buttons: HashMap<u32, TouchButtons>,
+}
+
+/// The extension components the backend keeps up to date.
+#[derive(SystemParam)]
+pub(crate) struct Extensions<'w, 's> {
+    touchpads: Query<'w, 's, &'static mut GamepadTouchpads>,
+    motions: Query<'w, 's, &'static mut GamepadMotion>,
+    touch_sensors: Query<'w, 's, &'static mut GamepadTouchSensors>,
 }
 
 #[derive(SystemParam)]
@@ -85,14 +96,16 @@ pub(crate) fn poll(
     mut commands: Commands,
     mut gamepads: ResMut<Gamepads>,
     mut out: Writers,
-    mut touchpads: Query<&mut GamepadTouchpads>,
-    mut motions: Query<&mut GamepadMotion>,
+    mut ext: Extensions,
     default_motion: Res<DefaultMotionConfig>,
 ) {
-    for mut motion in &mut motions {
+    for mut motion in &mut ext.motions {
         if motion.rotation_delta != Vec3::ZERO {
             motion.rotation_delta = Vec3::ZERO;
         }
+    }
+    for mut sensors in &mut ext.touch_sensors {
+        sensors.bypass_change_detection().touched.clear();
     }
     sdl::with(|sdl| {
         let mut event = SDL_Event::default();
@@ -126,9 +139,31 @@ pub(crate) fn poll(
                     }
                     SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP => {
                         let e = event.gbutton;
-                        if let Some(&(entity, _)) = gamepads.entities.get(&e.which.0) {
-                            let button = convert::button(SDL_GamepadButton(e.button.into()));
-                            out.button(entity, button, if e.down { 1.0 } else { 0.0 });
+                        let Some(&(entity, _)) = gamepads.entities.get(&e.which.0) else {
+                            continue;
+                        };
+                        let button = SDL_GamepadButton(e.button.into());
+                        let touch_sensor =
+                            gamepads.touch_buttons.get(&e.which.0).and_then(|buttons| {
+                                buttons
+                                    .iter()
+                                    .find(|&&(b, _)| b == button)
+                                    .map(|&(_, sensor)| sensor)
+                            });
+                        match touch_sensor {
+                            Some(sensor) => {
+                                if let Ok(mut sensors) = ext.touch_sensors.get_mut(entity) {
+                                    if e.down {
+                                        sensors.touched.press(sensor);
+                                    } else {
+                                        sensors.touched.release(sensor);
+                                    }
+                                }
+                            }
+                            None => {
+                                let value = if e.down { 1.0 } else { 0.0 };
+                                out.button(entity, convert::button(button), value);
+                            }
                         }
                     }
                     SDL_EVENT_GAMEPAD_AXIS_MOTION => {
@@ -144,7 +179,7 @@ pub(crate) fn poll(
                         let Some(&(entity, _)) = gamepads.entities.get(&e.which.0) else {
                             continue;
                         };
-                        let pads = touchpads.get_mut(entity).ok();
+                        let pads = ext.touchpads.get_mut(entity).ok();
                         if let Some(event) = touchpad::event(entity, kind, &e, pads) {
                             out.touchpad.write(event);
                         }
@@ -155,7 +190,7 @@ pub(crate) fn poll(
                             continue;
                         };
                         let mut last = gamepads.last_gyro.get(&e.which.0).copied();
-                        let motion = motions.get_mut(entity).ok();
+                        let motion = ext.motions.get_mut(entity).ok();
                         if let Some(sample) = motion::sample(entity, &e, motion, &mut last) {
                             out.motion.write(sample);
                         }
@@ -197,6 +232,10 @@ fn connect(
         out.touchpad.write_batch(started);
         entity_commands.insert(pads);
     }
+    let touch_buttons = touch_sensor::touch_buttons(gamepad);
+    if let Some(sensors) = touch_sensor::touch_sensors(gamepad, &touch_buttons) {
+        entity_commands.insert(sensors);
+    }
     if let Some(sensors) = motion::sensors(gamepad) {
         entity_commands.insert((sensors, GamepadMotion::default()));
         if default_motion != GamepadMotionConfig::default() {
@@ -209,12 +248,14 @@ fn connect(
 
     // SDL only reports changes, so report what is already held or deflected.
     let gamepad = gamepad.as_ptr();
-    for button in (0..SDL_GAMEPAD_BUTTON_COUNT.0).map(SDL_GamepadButton) {
+    let buttons = (0..SDL_GAMEPAD_BUTTON_COUNT.0).map(SDL_GamepadButton);
+    for button in buttons.filter(|b| !touch_buttons.iter().any(|(t, _)| t == b)) {
         // SAFETY: `gamepad` is open.
         if unsafe { SDL_GetGamepadButton(gamepad, button) } {
             out.button(entity, convert::button(button), 1.0);
         }
     }
+    gamepads.touch_buttons.insert(id.0, touch_buttons);
     for axis in (0..SDL_GAMEPAD_AXIS_COUNT.0).map(SDL_GamepadAxis) {
         // SAFETY: `gamepad` is open.
         let value = unsafe { SDL_GetGamepadAxis(gamepad, axis) };
@@ -257,6 +298,7 @@ fn disconnect(
     };
     gamepads.ids.remove(&entity);
     gamepads.last_gyro.remove(&id.0);
+    gamepads.touch_buttons.remove(&id.0);
     gamepads.disconnected.insert(key, entity);
     if let Ok(mut entity) = commands.get_entity(entity) {
         entity.remove::<(
@@ -264,6 +306,7 @@ fn disconnect(
             GamepadTouchpads,
             GamepadMotionSensors,
             GamepadMotion,
+            GamepadTouchSensors,
         )>();
     }
     out.connection(entity, GamepadConnection::Disconnected);

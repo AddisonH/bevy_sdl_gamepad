@@ -5,7 +5,7 @@
 use core::time::Duration;
 
 use bevy_ecs::{component::Component, entity::Entity, message::Message};
-use bevy_input::{gamepad::GamepadButton, touch::TouchPhase};
+use bevy_input::{ButtonInput, gamepad::GamepadButton, touch::TouchPhase};
 use bevy_math::{Vec2, Vec3};
 
 /// A gamepad's touchpads and the fingers currently on them, updated every frame.
@@ -109,4 +109,24 @@ pub struct GamepadMotion {
     /// Rotation since the previous frame, in radians around each axis, summed over every gyro
     /// sample. The building block for gyro aiming.
     pub rotation_delta: Vec3,
+}
+
+/// A sensor that only knows whether it is being touched, such as on top of a stick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GamepadTouchSensor {
+    LeftStick,
+    RightStick,
+    LeftGrip,
+    RightGrip,
+}
+
+/// A gamepad's touch sensors and which of them are touched, updated every frame.
+///
+/// Present only on gamepads with touch sensors.
+#[derive(Component, Debug, Clone, Default)]
+pub struct GamepadTouchSensors {
+    /// The touch sensors this gamepad has.
+    pub sensors: Vec<GamepadTouchSensor>,
+    /// Which sensors are touched. `just_pressed` and `just_released` cover this frame.
+    pub touched: ButtonInput<GamepadTouchSensor>,
 }

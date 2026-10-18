@@ -11,6 +11,7 @@ mod events;
 mod motion;
 mod rumble;
 mod sdl;
+mod touch_sensor;
 mod touchpad;
 
 pub use convert::button;

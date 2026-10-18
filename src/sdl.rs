@@ -16,6 +16,8 @@ use sdl3_sys::{
     joystick::SDL_JoystickID,
 };
 
+pub(crate) const VALVE_VENDOR_ID: u16 = 0x28de;
+
 thread_local! {
     // SDL's init and event functions must run on the main thread, so every system that reaches
     // this takes `NonSendMarker`.

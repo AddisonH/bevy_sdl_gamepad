@@ -18,8 +18,8 @@ use bevy::{
     prelude::*,
 };
 use bevy_sdl_gamepad::ext::{
-    GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadTouchpadEvent,
-    GamepadTouchpads, MotionSensor,
+    GamepadMotion, GamepadMotionConfig, GamepadMotionSample, GamepadTouchSensor,
+    GamepadTouchSensors, GamepadTouchpadEvent, GamepadTouchpads, MotionSensor,
 };
 use bevy_sdl_gamepad::{SdlGamepad, SdlGamepadPlugin, button};
 
@@ -38,12 +38,8 @@ const AIM_RANGE: f32 = 0.6;
 const IDLE: ThemeToken = tokens::BUTTON_BG;
 const LIT: ThemeToken = tokens::BUTTON_PRIMARY_BG;
 
-// SDL's mapping for the Steam Controller puts its extra inputs on these buttons.
+/// SDL's mapping for the Steam Controller puts its quick access button here.
 const QAM: GamepadButton = button::MISC1;
-const LEFT_STICK_TOUCH: GamepadButton = button::MISC3;
-const RIGHT_STICK_TOUCH: GamepadButton = button::MISC4;
-const LEFT_GRIP_TOUCH: GamepadButton = button::MISC5;
-const RIGHT_GRIP_TOUCH: GamepadButton = button::MISC6;
 
 /// Buttons with a place on screen, besides touchpad clicks; any others held are listed as text.
 const SHOWN: &[GamepadButton] = &[
@@ -69,10 +65,6 @@ const SHOWN: &[GamepadButton] = &[
     button::LEFT_PADDLE2,
     button::RIGHT_PADDLE1,
     button::RIGHT_PADDLE2,
-    LEFT_STICK_TOUCH,
-    RIGHT_STICK_TOUCH,
-    LEFT_GRIP_TOUCH,
-    RIGHT_GRIP_TOUCH,
 ];
 
 fn main() {
@@ -138,6 +130,7 @@ enum LightSource {
     Button(GamepadButton),
     /// The click button of this touchpad, whichever button that is on the gamepad.
     PadClick(usize),
+    TouchSensor(GamepadTouchSensor),
 }
 
 impl Light {
@@ -156,9 +149,9 @@ impl Light {
         }
     }
 
-    fn pad_click(pad: usize) -> Self {
+    fn border_from(source: LightSource) -> Self {
         Self {
-            source: LightSource::PadClick(pad),
+            source,
             border: true,
             lit: false,
         }
@@ -291,7 +284,7 @@ fn stick(
     y: f32,
     axes: (GamepadAxis, GamepadAxis),
     click: GamepadButton,
-    touch: GamepadButton,
+    touch: GamepadTouchSensor,
 ) -> impl Scene {
     let offset = (STICK - KNOB) / 2.0;
     bsn! {
@@ -302,7 +295,7 @@ fn stick(
         }
         ThemeBackgroundColor(tokens::PANE_BODY_BG)
         ThemeBorderColor(IDLE)
-        ~{ Light::border(touch) }
+        ~{ Light::border_from(LightSource::TouchSensor(touch)) }
         Children [
             @pill("", click, offset, offset, KNOB, KNOB)
             ~{ StickKnob(axes.0, axes.1) }
@@ -335,7 +328,7 @@ fn trackpad(name: &'static str, pad: usize, x: f32, y: f32) -> impl Scene {
         }
         ThemeBackgroundColor(tokens::PANE_BODY_BG)
         ThemeBorderColor(IDLE)
-        ~{ Light::pad_click(pad) }
+        ~{ Light::border_from(LightSource::PadClick(pad)) }
         Children [
             @{ dot(0) }
             --
@@ -348,7 +341,11 @@ fn trackpad(name: &'static str, pad: usize, x: f32, y: f32) -> impl Scene {
 }
 
 /// A back paddle and the grip touch sensor beside it.
-fn grip(paddles: [(&'static str, GamepadButton); 2], touch: GamepadButton, x: f32) -> impl Scene {
+fn grip(
+    paddles: [(&'static str, GamepadButton); 2],
+    touch: GamepadTouchSensor,
+    x: f32,
+) -> impl Scene {
     bsn! {
         @place(x, 330.0, 110.0, 150.0)
         Node {
@@ -359,7 +356,7 @@ fn grip(paddles: [(&'static str, GamepadButton); 2], touch: GamepadButton, x: f3
             padding: UiRect::all(px(8)),
         }
         ThemeBorderColor(IDLE)
-        ~{ Light::border(touch) }
+        ~{ Light::border_from(LightSource::TouchSensor(touch)) }
         Children [
             @pill(paddles[0].0, paddles[0].1, 0.0, 0.0, 86.0, 32.0)
             Node { position_type: PositionType::Relative }
@@ -438,9 +435,9 @@ fn root() -> impl Scene {
             --
             @cluster(mirror(100.0, 132.0), 140.0, [("Y", North), ("A", South), ("X", West), ("B", East)])
             --
-            @stick(290.0, 146.0, (LeftStickX, LeftStickY), LeftThumb, LEFT_STICK_TOUCH)
+            @stick(290.0, 146.0, (LeftStickX, LeftStickY), LeftThumb, GamepadTouchSensor::LeftStick)
             --
-            @stick(mirror(290.0, STICK), 146.0, (RightStickX, RightStickY), RightThumb, RIGHT_STICK_TOUCH)
+            @stick(mirror(290.0, STICK), 146.0, (RightStickX, RightStickY), RightThumb, GamepadTouchSensor::RightStick)
             --
             @pill("View", Select, 452.0, 150.0, 80.0, 30.0)
             --
@@ -456,9 +453,9 @@ fn root() -> impl Scene {
             --
             @gyro_panel(mirror(0.0, AIM_WIDTH) / 2.0, 330.0)
             --
-            @grip([("L4", button::LEFT_PADDLE1), ("L5", button::LEFT_PADDLE2)], LEFT_GRIP_TOUCH, 60.0)
+            @grip([("L4", button::LEFT_PADDLE1), ("L5", button::LEFT_PADDLE2)], GamepadTouchSensor::LeftGrip, 60.0)
             --
-            @grip([("R4", button::RIGHT_PADDLE1), ("R5", button::RIGHT_PADDLE2)], RIGHT_GRIP_TOUCH, mirror(60.0, 110.0))
+            @grip([("R4", button::RIGHT_PADDLE1), ("R5", button::RIGHT_PADDLE2)], GamepadTouchSensor::RightGrip, mirror(60.0, 110.0))
             --
             Node {
                 position_type: PositionType::Absolute,
@@ -529,15 +526,22 @@ fn show_header(
 fn show_lights(
     mut commands: Commands,
     active_pad: Res<ActivePad>,
-    gamepads: Query<(&Gamepad, Option<&GamepadTouchpads>)>,
+    gamepads: Query<(
+        &Gamepad,
+        Option<&GamepadTouchpads>,
+        Option<&GamepadTouchSensors>,
+    )>,
     mut lights: Query<(Entity, &mut Light)>,
 ) {
     let gamepad = active(&active_pad, &gamepads);
     for (entity, mut light) in &mut lights {
-        let lit = gamepad.is_some_and(|(gamepad, pads)| {
+        let lit = gamepad.is_some_and(|(gamepad, pads, sensors)| {
             let button = match light.source {
                 LightSource::Button(button) => Some(button),
                 LightSource::PadClick(pad) => pads.and_then(|pads| pads.0.get(pad)?.click),
+                LightSource::TouchSensor(sensor) => {
+                    return sensors.is_some_and(|sensors| sensors.touched.pressed(sensor));
+                }
             };
             button.is_some_and(|button| gamepad.pressed(button))
         });
