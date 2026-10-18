@@ -1,9 +1,25 @@
 //! An SDL3 gamepad backend for Bevy, replacing `bevy_gilrs`.
 //!
-//! Gamepads appear through the usual `bevy_input` API ([`Gamepad`](bevy_input::gamepad::Gamepad),
-//! [`GamepadRumbleRequest`](bevy_input::gamepad::GamepadRumbleRequest)). Disable Bevy's own
-//! gamepad backend when using this plugin, with
-//! `DefaultPlugins.build().disable::<GilrsPlugin>()` or by turning off the `bevy_gilrs` feature.
+//! Gamepads appear through the usual `bevy_input` API ([`Gamepad`],
+//! [`GamepadRumbleRequest`](bevy_input::gamepad::GamepadRumbleRequest)), so code and input
+//! crates built on it keep working. Features `bevy_input` has no types for, such as gyro and
+//! touchpads, are in [`ext`].
+//!
+//! Bevy's own gamepad backend must be off, or every controller appears twice:
+//!
+//! ```no_run
+//! use bevy::{gilrs::GilrsPlugin, prelude::*};
+//! use bevy_sdl_gamepad::SdlGamepadPlugin;
+//!
+//! App::new()
+//!     .add_plugins((
+//!         DefaultPlugins.build().disable::<GilrsPlugin>(),
+//!         SdlGamepadPlugin::default(),
+//!     ))
+//!     .run();
+//! ```
+//!
+//! Turning off Bevy's `bevy_gilrs` feature works too.
 
 #![warn(missing_docs)]
 

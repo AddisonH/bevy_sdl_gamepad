@@ -31,8 +31,9 @@ default = ["build-sdl"]
 build-sdl = ["sdl3-sys/build-from-source-static"]
 
 [dev-dependencies]
-# Bevy's `default_platform` would bring in `bevy_gilrs`, so its parts are listed instead.
+# Only what the example needs, plus `bevy_gilrs` so that it disables GilrsPlugin as most apps must.
 bevy = { version = "0.20.0", default-features = false, features = [
+  "bevy_gilrs",
   "std",
   "multi_threaded",
   "bevy_log",

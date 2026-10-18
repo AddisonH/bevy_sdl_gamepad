@@ -12,6 +12,7 @@ use bevy::{
         theme::{ThemeBackgroundColor, ThemeBorderColor, ThemeToken, UiTheme},
         tokens,
     },
+    gilrs::GilrsPlugin,
     input::gamepad::{GamepadRumbleIntensity, GamepadRumbleRequest},
     prelude::*,
     ui::Checked,
@@ -71,14 +72,17 @@ const SHOWN: &[GamepadButton] = &[
 fn main() {
     App::new()
         .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Controller test".into(),
-                    resolution: (WIDTH as u32, HEIGHT as u32).into(),
+            DefaultPlugins
+                .build()
+                .disable::<GilrsPlugin>()
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Controller test".into(),
+                        resolution: (WIDTH as u32, HEIGHT as u32).into(),
+                        ..default()
+                    }),
                     ..default()
                 }),
-                ..default()
-            }),
             FeathersPlugins,
             SdlGamepadPlugin {
                 motion: GamepadMotionConfig {
