@@ -8,10 +8,9 @@ controllers, including their gyros, touchpads and extra buttons. Gamepads appear
 usual `Gamepad` component and rumble requests, so existing code and input crates keep working.
 On top of that, the `ext` module provides what `bevy_input` has no types for yet:
 
-- gyroscope and accelerometer, with every sample and a per-frame rotation for gyro aiming
-- touchpads, with every touch and each pad's click button
-- touch sensors on sticks and grips
-- paddles and other extra buttons, as `GamepadButton::Other` constants in `button`
+- gyroscope and accelerometer
+- touchpads and touch sensors
+- paddles and other extra buttons
 
 **Status: experimental.** The `ext` API will change. Tested on Linux with the second-generation
 Steam Controller; Windows and macOS are untested. It does nothing on the web, where `bevy_gilrs`
