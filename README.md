@@ -1,12 +1,12 @@
 # bevy_sdl_gamepad
 
-An [SDL3](https://libsdl.org) gamepad backend for [Bevy](https://bevy.org), replacing
-`bevy_gilrs`.
+An [SDL3](https://libsdl.org) gamepad backend for [Bevy](https://bevy.org), as an alternative
+to `bevy_gilrs`.
 
-SDL supports far more controllers than gilrs, with drivers for PlayStation, Xbox, Switch and
-Steam hardware. Gamepads still appear through Bevy's usual `Gamepad` component and rumble
-requests, so existing code and input crates keep working. On top of that, the `ext` module
-provides what `bevy_input` has no types for yet:
+SDL is widely used in games and has drivers for PlayStation, Xbox, Switch and Steam
+controllers, including their gyros, touchpads and extra buttons. Gamepads appear through Bevy's
+usual `Gamepad` component and rumble requests, so existing code and input crates keep working.
+On top of that, the `ext` module provides what `bevy_input` has no types for yet:
 
 - gyroscope and accelerometer, with every sample and a per-frame rotation for gyro aiming
 - touchpads, with every touch and each pad's click button

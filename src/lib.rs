@@ -1,4 +1,4 @@
-//! An SDL3 gamepad backend for Bevy, replacing `bevy_gilrs`.
+//! An SDL3 gamepad backend for Bevy, an alternative to `bevy_gilrs`.
 //!
 //! Gamepads appear through the usual `bevy_input` API ([`Gamepad`],
 //! [`GamepadRumbleRequest`](bevy_input::gamepad::GamepadRumbleRequest)), so code and input
