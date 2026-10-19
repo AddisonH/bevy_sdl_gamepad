@@ -106,8 +106,9 @@ pub struct GamepadMotionSample {
     /// Gyro: angular velocity in radians per second, counter-clockwise positive.
     /// Accel: acceleration in m/s², including gravity.
     pub value: Vec3,
-    /// When the gamepad took the reading, on its own clock. Only differences between samples
-    /// from the same gamepad are meaningful.
+    /// When the gamepad took the reading, on its own clock, or for gamepads without one, when
+    /// the backend received it. Only differences between samples from the same gamepad are
+    /// meaningful.
     pub timestamp: Duration,
 }
 

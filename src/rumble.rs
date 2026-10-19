@@ -26,9 +26,16 @@ pub(crate) struct Rumbles {
 struct GamepadRumble {
     /// Running rumbles and when each ends; `Add` requests stack.
     running: Vec<(Duration, GamepadRumbleIntensity)>,
-    /// Motor levels last sent to SDL, and when SDL stops playing them.
-    sent: (u16, u16),
-    sent_until: Duration,
+    sent: Option<Sent>,
+}
+
+/// What SDL was last asked to play.
+#[derive(Clone, Copy)]
+struct Sent {
+    /// A reconnected gamepad has a new instance ID and plays nothing yet.
+    instance_id: u32,
+    level: (u16, u16),
+    until: Duration,
 }
 
 pub(crate) fn play(
@@ -54,6 +61,13 @@ pub(crate) fn play(
     sdl::with(|sdl| {
         rumbles.gamepads.retain(|entity, rumble| {
             rumble.running.retain(|&(end, _)| end > now);
+            let open = gamepads
+                .ids
+                .get(entity)
+                .and_then(|&id| Some((id, sdl.gamepad(id)?)));
+            let Some((instance_id, gamepad)) = open else {
+                return !rumble.running.is_empty();
+            };
             let (strong, weak) = rumble.running.iter().fold((0.0, 0.0), |(s, w), (_, i)| {
                 (s + i.strong_motor, w + i.weak_motor)
             });
@@ -64,17 +78,26 @@ pub(crate) fn play(
                 .map(|&(end, _)| end)
                 .max()
                 .unwrap_or(now);
-            let renew = until > rumble.sent_until && rumble.sent_until < now + RENEW_MARGIN;
-            if level != rumble.sent || renew {
+            let sent = rumble
+                .sent
+                .filter(|sent| sent.instance_id == instance_id)
+                .unwrap_or(Sent {
+                    instance_id,
+                    level: (0, 0),
+                    until: now,
+                });
+            let renew = until > sent.until && sent.until < now + RENEW_MARGIN;
+            if level != sent.level || renew {
                 let duration = (until - now).min(MAX_SDL_DURATION);
-                if let Some(gamepad) = gamepads.ids.get(entity).and_then(|&id| sdl.gamepad(id)) {
-                    // SDL plays a non-zero level with a 0 ms duration forever.
-                    let ms = (duration.as_millis() as u32).max(1);
-                    // SAFETY: `gamepad` is open. A gamepad without rumble returns false.
-                    unsafe { SDL_RumbleGamepad(gamepad.as_ptr(), level.0, level.1, ms) };
-                }
-                rumble.sent = level;
-                rumble.sent_until = now + duration;
+                // SDL plays a non-zero level with a 0 ms duration forever.
+                let ms = (duration.as_millis() as u32).max(1);
+                // SAFETY: `gamepad` is open. A gamepad without rumble returns false.
+                unsafe { SDL_RumbleGamepad(gamepad.as_ptr(), level.0, level.1, ms) };
+                rumble.sent = Some(Sent {
+                    instance_id,
+                    level,
+                    until: now + duration,
+                });
             }
             !rumble.running.is_empty()
         });

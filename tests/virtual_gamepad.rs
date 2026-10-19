@@ -112,14 +112,20 @@ struct VirtualPad {
 
 impl VirtualPad {
     fn attach() -> Self {
-        Self::attach_from(VENDOR)
+        Self::attach_from(VENDOR, 1)
     }
 
-    fn attach_from(vendor: u16) -> Self {
+    /// A Valve gamepad with two touchpads, like the Steam Deck.
+    fn valve() -> Self {
+        Self::attach_from(VALVE_VENDOR, 2)
+    }
+
+    fn attach_from(vendor: u16, ntouchpads: usize) -> Self {
         let touchpad = SDL_VirtualJoystickTouchpadDesc {
             nfingers: 2,
             ..Default::default()
         };
+        let touchpads = vec![touchpad; ntouchpads];
         let sensors = [
             SDL_VirtualJoystickSensorDesc {
                 r#type: SDL_SENSOR_GYRO,
@@ -136,8 +142,8 @@ impl VirtualPad {
             product_id: PRODUCT,
             naxes: SDL_GAMEPAD_AXIS_COUNT.0 as u16,
             nbuttons: SDL_GAMEPAD_BUTTON_COUNT.0 as u16,
-            ntouchpads: 1,
-            touchpads: &touchpad,
+            ntouchpads: ntouchpads as u16,
+            touchpads: touchpads.as_ptr(),
             nsensors: sensors.len() as u16,
             sensors: sensors.as_ptr(),
             name: c"Virtual Test Pad".as_ptr(),
@@ -317,6 +323,41 @@ fn rumble_stacks_expires_and_stops() {
 }
 
 #[test]
+fn rumble_resumes_after_reconnecting() {
+    let mut h = Harness::new();
+    let pad = VirtualPad::attach();
+    h.update();
+    let gamepad = h.entity(&pad);
+    h.rumble(GamepadRumbleRequest::Add {
+        gamepad,
+        intensity: GamepadRumbleIntensity::STRONG_MAX,
+        duration: Duration::from_secs(10),
+    });
+
+    pad.detach();
+    h.update();
+    RUMBLE.lock().unwrap().clear();
+    let pad = VirtualPad::attach();
+    h.update();
+    assert_eq!(RUMBLE.lock().unwrap().last(), Some(&(u16::MAX, 0)));
+    pad.detach();
+}
+
+#[test]
+fn valve_touchpads_click_with_touchpad_and_misc2() {
+    let mut h = Harness::new();
+    let pad = VirtualPad::valve();
+    h.update();
+    let clicks: Vec<_> = h.touchpads(&pad).0.iter().map(|pad| pad.click).collect();
+    assert_eq!(clicks, [Some(button::TOUCHPAD), Some(button::MISC2)]);
+
+    pad.button(SDL_GAMEPAD_BUTTON_MISC2, true);
+    h.update();
+    assert!(h.gamepad(&pad).pressed(button::MISC2));
+    pad.detach();
+}
+
+#[test]
 fn touchpad_fingers_follow_touches() {
     let mut h = Harness::new();
     let pad = VirtualPad::attach();
@@ -425,7 +466,7 @@ fn gyro_samples_sum_into_rotation_delta() {
 #[test]
 fn valve_touch_sensors_are_not_buttons() {
     let mut h = Harness::new();
-    let pad = VirtualPad::attach_from(VALVE_VENDOR);
+    let pad = VirtualPad::valve();
     pad.button(SDL_GAMEPAD_BUTTON_MISC6, true);
     h.update();
     let entity = h.entity(&pad);

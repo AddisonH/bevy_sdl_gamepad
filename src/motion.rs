@@ -89,7 +89,6 @@ pub(crate) fn sample(
         _ => return None,
     };
     let value = Vec3::from_array(event.data);
-    // For gamepads without their own clock, SDL fills in when it received the reading.
     let timestamp = Duration::from_nanos(event.sensor_timestamp);
 
     if let Some(mut motion) = motion {

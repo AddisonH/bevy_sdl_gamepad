@@ -5,7 +5,7 @@ use core::{
 use std::{cell::RefCell, ffi::CString};
 
 use bevy_app::AppExit;
-use bevy_ecs::{message::MessageReader, system::NonSendMarker};
+use bevy_ecs::{message::MessageReader, schedule::ScheduleLabel, system::NonSendMarker};
 use bevy_log::{debug, warn};
 use bevy_platform::collections::HashMap;
 use sdl3_sys::{
@@ -89,6 +89,10 @@ pub(crate) fn init(hints: &[(String, String)]) {
         gamepads: HashMap::default(),
     }));
 }
+
+/// Runs after `Last`, so it sees an `AppExit` sent anywhere in the frame.
+#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct Shutdown;
 
 pub(crate) fn shutdown_on_exit(_: NonSendMarker, mut exit: MessageReader<AppExit>) {
     if exit.read().next().is_some() {

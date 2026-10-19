@@ -35,7 +35,7 @@ mod touchpad;
 
 pub use convert::button;
 
-use bevy_app::{App, Last, Plugin, PostUpdate, PreStartup, PreUpdate};
+use bevy_app::{App, Last, MainScheduleOrder, Plugin, PostUpdate, PreStartup, PreUpdate};
 use bevy_ecs::{
     component::Component,
     entity::Entity,
@@ -45,10 +45,7 @@ use bevy_ecs::{
 };
 use bevy_input::{InputSystems, gamepad::Gamepad};
 use bevy_log::warn_once;
-use sdl3_sys::hints::{
-    SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, SDL_HINT_JOYSTICK_HIDAPI_STEAM,
-    SDL_HINT_NO_SIGNAL_HANDLERS,
-};
+use sdl3_sys::hints::{SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, SDL_HINT_NO_SIGNAL_HANDLERS};
 
 /// Connects gamepads through SDL and keeps their `bevy_input` and [`ext`] state up to date.
 pub struct SdlGamepadPlugin {
@@ -70,7 +67,6 @@ impl Default for SdlGamepadPlugin {
                 hint(SDL_HINT_NO_SIGNAL_HANDLERS, "1"),
                 // SDL has no window of its own, so it cannot tell whether the app is focused.
                 hint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1"),
-                hint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1"),
             ],
             motion: ext::GamepadMotionConfig::default(),
         }
@@ -94,7 +90,10 @@ impl Plugin for SdlGamepadPlugin {
             )
             .add_systems(PreUpdate, warn_other_backends.after(InputSystems))
             .add_systems(PostUpdate, rumble::play)
-            .add_systems(Last, sdl::shutdown_on_exit);
+            .add_systems(sdl::Shutdown, sdl::shutdown_on_exit);
+        app.world_mut()
+            .resource_mut::<MainScheduleOrder>()
+            .insert_after(Last, sdl::Shutdown);
     }
 }
 
